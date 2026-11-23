@@ -11,6 +11,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, resolve } from 'node:path'
+import z from '@deepseek-ai/schemastery'
 import { defineTool, ToolArgsError } from '@deepseek-ai/dsh-tools'
 
 export const name = 'sensenova-image'
@@ -18,6 +19,7 @@ export const inject = ['tools', 'workingDirectory']
 
 const DEFAULT_BASE_URL = 'https://token.sensenova.cn/v1'
 const DEFAULT_MODEL = 'sensenova-u1.5-lite'
+const SUPPORTED_MODELS = ['sensenova-u1.5-lite', 'sensenova-u1.5-fast']
 const DEFAULT_API_KEY_ENV = 'SENSENOVA_API_KEY'
 const DEFAULT_OUTPUT_DIR = 'generated-images'
 const DEFAULT_REQUEST_TIMEOUT_MS = 180_000
@@ -30,6 +32,27 @@ const OUTPUT_FORMATS = {
   webp: 'image/webp',
 }
 
+/**
+ * Live plugin configuration.
+ *
+ * Request defaults are volatile: the settings page writes them into the active
+ * profile entry, and the tool reads them at call time. `apiKeyEnv`, `baseURL`
+ * and `requestTimeoutMs` stay ordinary because they are deployment wiring, not
+ * per-image choices.
+ */
+export const Config = z.object({
+  apiKeyEnv: z.string().default(DEFAULT_API_KEY_ENV),
+  baseURL: z.string().default(DEFAULT_BASE_URL),
+  model: z.string().default(DEFAULT_MODEL).volatile(),
+  size: z.string().default('1024x1024').volatile(),
+  n: z.number().step(1).min(1).max(MAX_IMAGES).default(1).volatile(),
+  watermark: z.boolean().default(false).volatile(),
+  prompt_extend: z.boolean().default(true).volatile(),
+  output_format: z.string().default('png').volatile(),
+  outputDir: z.string().default(DEFAULT_OUTPUT_DIR).volatile(),
+  requestTimeoutMs: z.number().default(DEFAULT_REQUEST_TIMEOUT_MS),
+})
+
 function textConfig(config, key, fallback) {
   const value = config?.[key]
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : fallback
@@ -38,6 +61,15 @@ function textConfig(config, key, fallback) {
 function numberConfig(config, key, fallback) {
   const value = config?.[key]
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback
+}
+
+/** Read a volatile Config field, or a plain value in tests and older profiles. */
+function liveConfig(config, key, fallback) {
+  const field = config?.[key]
+  const value = field !== null && typeof field === 'object' && typeof field.get === 'function'
+    ? field.get()
+    : field
+  return value === undefined ? fallback : value
 }
 
 /** Turn a prompt or requested filename into a short, filesystem-safe stem. */
@@ -141,51 +173,56 @@ async function readImageBytes(item, signal) {
 
 export function apply(ctx, config) {
   const baseURL = textConfig(config, 'baseURL', DEFAULT_BASE_URL)
-  const model = textConfig(config, 'model', DEFAULT_MODEL)
   const apiKeyEnv = textConfig(config, 'apiKeyEnv', DEFAULT_API_KEY_ENV)
-  const outputDir = textConfig(config, 'outputDir', DEFAULT_OUTPUT_DIR)
   const requestTimeoutMs = numberConfig(config, 'requestTimeoutMs', DEFAULT_REQUEST_TIMEOUT_MS)
+
+  // This bundle ships its own settings section; keep the schema-derived form off.
+  ctx.inject(['settings'], (settingsCtx) => {
+    settingsCtx.effect(() => settingsCtx.settings.configure({ auto: false }, ctx.fiber))
+  })
 
   ctx.tools.register(defineTool({
     name: 'sensenova_generate_image',
     description:
-      'Generate one or more images from a text prompt with SenseNova U1.5 Lite (sensenova-u1.5-lite). '
-      + 'This is the supported way to use that model: it is an image-generation model, not a chat model. '
-      + 'Images are downloaded and saved in the session working directory; the result contains each absolute '
-      + 'path, byte size, temporary URL, and ready-to-use Markdown. Put the returned Markdown in your reply so '
-      + 'the user can see the image. Use this tool for any text-to-image request, such as illustrations, '
-      + 'posters, product shots, or infographics.',
+      'Generate one or more images from a text prompt with SenseNova U1.5 image models: '
+      + 'sensenova-u1.5-lite (quality-focused) or sensenova-u1.5-fast (lower latency). '
+      + 'These are image-generation models, not chat models. Images are downloaded and saved in the session '
+      + 'working directory; the result contains each absolute path, byte size, temporary URL, and ready-to-use '
+      + 'Markdown. Put the returned Markdown in your reply so the user can see the image. Use this tool for any '
+      + 'text-to-image request, such as illustrations, posters, product shots, or infographics. '
+      + 'Model, size, n, watermark, prompt_extend, and output_format default to the values on the plugin settings '
+      + 'page; explicit parameters override them.',
     parameters: {
       prompt: {
         type: 'string',
         required: true,
         description: 'Image description. Chinese and English are both supported; longer, more specific prompts work well.',
       },
+      model: {
+        type: 'string',
+        enum: SUPPORTED_MODELS,
+        description: 'Image model: sensenova-u1.5-lite (quality-focused) or sensenova-u1.5-fast (lower latency). Omit to use the settings page default.',
+      },
       size: {
         type: 'string',
-        description: 'Output size: "2K", "4K", or WIDTHxHEIGHT. Width and height must be 512-4096, multiples of 32, and no more than 3:1 apart. Defaults to 1024x1024.',
-        default: '1024x1024',
+        description: 'Output size: "2K", "4K", or WIDTHxHEIGHT. Width and height must be 512-4096, multiples of 32, and no more than 3:1 apart. Omit to use the settings page default.',
       },
       n: {
         type: 'integer',
-        description: `Number of images to generate, 1-${MAX_IMAGES}. Defaults to 1.`,
-        default: 1,
+        description: `Number of images to generate, 1-${MAX_IMAGES}. Omit to use the settings page default.`,
       },
       watermark: {
         type: 'boolean',
-        description: 'Add the provider watermark. Defaults to false (watermark-free during the free public beta).',
-        default: false,
+        description: 'Add the provider watermark. Omit to use the settings page default.',
       },
       prompt_extend: {
         type: 'boolean',
-        description: 'Let the provider expand and refine the prompt automatically. Defaults to true.',
-        default: true,
+        description: 'Let the provider expand and refine the prompt automatically. Omit to use the settings page default.',
       },
       output_format: {
         type: 'string',
         enum: ['png', 'jpeg', 'webp'],
-        description: 'Saved image format. Defaults to png.',
-        default: 'png',
+        description: 'Saved image format. Omit to use the settings page default.',
       },
       filename: {
         type: 'string',
@@ -236,26 +273,31 @@ export function apply(ctx, config) {
       const prompt = args.prompt.trim()
       if (prompt === '') throw new ToolArgsError(['prompt must not be blank'])
 
-      const size = normalizeSize(args.size)
-      const n = args.n ?? 1
+      const selectedModel = args.model ?? liveConfig(config, 'model', DEFAULT_MODEL)
+      if (!SUPPORTED_MODELS.includes(selectedModel)) {
+        throw new ToolArgsError([`model must be one of ${SUPPORTED_MODELS.join(', ')}`])
+      }
+
+      const size = normalizeSize(args.size ?? liveConfig(config, 'size', '1024x1024'))
+      const n = args.n ?? liveConfig(config, 'n', 1)
       if (!Number.isInteger(n) || n < 1 || n > MAX_IMAGES) {
         throw new ToolArgsError([`n must be an integer from 1 to ${MAX_IMAGES}`])
       }
-      const format = args.output_format ?? 'png'
+      const format = args.output_format ?? liveConfig(config, 'output_format', 'png')
       if (!Object.hasOwn(OUTPUT_FORMATS, format)) {
         throw new ToolArgsError(['output_format must be png, jpeg, or webp'])
       }
 
       const apiKey = await resolveApiKey(ctx, apiKeyEnv)
       const body = {
-        model,
+        model: selectedModel,
         prompt,
         n,
         size,
         output_format: format,
         response_format: 'url',
-        watermark: args.watermark ?? false,
-        prompt_extend: args.prompt_extend ?? true,
+        watermark: args.watermark ?? liveConfig(config, 'watermark', false),
+        prompt_extend: args.prompt_extend ?? liveConfig(config, 'prompt_extend', true),
       }
 
       const payload = await requestGeneration({
@@ -270,7 +312,8 @@ export function apply(ctx, config) {
       const cwd = session !== undefined
         ? ctx.workingDirectory.get(session)
         : ctx.workingDirectory.defaultDirectory
-      const directory = isAbsolute(outputDir) ? outputDir : resolve(cwd, outputDir)
+      const outputDirectory = liveConfig(config, 'outputDir', DEFAULT_OUTPUT_DIR) || DEFAULT_OUTPUT_DIR
+      const directory = isAbsolute(outputDirectory) ? outputDirectory : resolve(cwd, outputDirectory)
       await mkdir(directory, { recursive: true })
 
       const stem = safeStem(args.filename ?? prompt, 'image')
@@ -289,11 +332,12 @@ export function apply(ctx, config) {
       }
 
       return {
-        model,
+        model: selectedModel,
         prompt,
         size: typeof payload.size === 'string' && payload.size !== '' ? payload.size : size,
         images,
       }
     },
   }))
+
 }

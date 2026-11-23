@@ -1,7 +1,7 @@
 {
   "meta": {
-    "title": "SenseNova 文生图",
-    "description": "使用 SenseNova U1.5 Lite（sensenova-u1.5-lite）根据文本提示生成图片，并保存到会话工作目录。",
+    "title": "SenseNova 文生图（Lite / Fast）",
+    "description": "使用 SenseNova U1.5 Lite 或 U1.5 Fast 生成图片，并可在设置页选择模型、尺寸、水印等默认参数。",
     "detail": "docs/DETAIL.md"
   }
 }
