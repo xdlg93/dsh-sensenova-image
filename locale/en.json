@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "SenseNova image generation",
+    "description": "Generate images from text prompts with SenseNova U1.5 Lite (sensenova-u1.5-lite) and save them in the session working directory.",
+    "detail": "docs/DETAIL.md"
+  }
+}

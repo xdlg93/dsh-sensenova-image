@@ -1,0 +1,53 @@
+{
+  "name": "dsh-sensenova-image",
+  "version": "0.1.0",
+  "private": false,
+  "description": "SenseNova U1.5 Lite text-to-image tool for DeepSeek Harness",
+  "license": "MIT",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "docs",
+    "icon.svg",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "dsh": "^0.2.3-alpha.2"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "sensenova",
+    "text-to-image",
+    "image-generation"
+  ],
+  "author": "xdlg93",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xdlg93/dsh-sensenova-image.git"
+  },
+  "homepage": "https://github.com/xdlg93/dsh-sensenova-image#readme",
+  "bugs": {
+    "url": "https://github.com/xdlg93/dsh-sensenova-image/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

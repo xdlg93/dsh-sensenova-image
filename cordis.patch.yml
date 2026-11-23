@@ -1,0 +1,12 @@
+# SenseNova U1.5 Lite text-to-image tool.
+# The model is an image-generation model, not a chat model: it is exposed to
+# every agent (including subagents) through the sensenova_generate_image tool.
+- insert:
+    - id: sensenova-image
+      name: dsh-sensenova-image
+      config:
+        apiKeyEnv: SENSENOVA_API_KEY
+        baseURL: https://token.sensenova.cn/v1
+        model: sensenova-u1.5-lite
+        outputDir: generated-images
+        requestTimeoutMs: 180000
