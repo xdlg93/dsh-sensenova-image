@@ -1,0 +1,61 @@
+{
+  "format": 1,
+  "title": {
+    "en": "SenseNova image plugins",
+    "zh": "SenseNova 文生图插件"
+  },
+  "plugins": [
+    {
+      "name": "dsh-sensenova-image",
+      "title": {
+        "en": "SenseNova image generation",
+        "zh": "SenseNova 文生图"
+      },
+      "description": {
+        "en": "Generate images with SenseNova U1.5 Lite or Fast, with a settings page for model, size, watermark, and other defaults.",
+        "zh": "使用 SenseNova U1.5 Lite 或 Fast 生成图片，并可在设置页选择模型、尺寸、水印等默认参数。"
+      },
+      "icon": "icons/sensenova-image.svg",
+      "author": "xdlg93",
+      "homepage": "https://github.com/xdlg93/dsh-sensenova-image#readme",
+      "repository": {
+        "url": "https://github.com/xdlg93/dsh-sensenova-image"
+      },
+      "metadata": {
+        "keywords": [
+          "dsh",
+          "dsh-plugin",
+          "sensenova",
+          "text-to-image",
+          "image-generation"
+        ]
+      },
+      "versions": [
+        {
+          "version": "0.2.0",
+          "publishTimestamp": 1795443834,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/xdlg93/dsh-sensenova-image",
+            "commit": "ca59e9af062a2dea12188ef7a97d38da5c8b10ea"
+          },
+          "engines": {
+            "dsh": "^0.2.3-alpha.2"
+          }
+        },
+        {
+          "version": "0.1.0",
+          "publishTimestamp": 1795443826,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/xdlg93/dsh-sensenova-image",
+            "commit": "27d8f2687f48f3903deda885d8dab568f6989630"
+          },
+          "engines": {
+            "dsh": "^0.2.3-alpha.2"
+          }
+        }
+      ]
+    }
+  ]
+}
