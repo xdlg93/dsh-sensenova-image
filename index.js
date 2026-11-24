@@ -44,7 +44,7 @@ export const Config = z.object({
   apiKeyEnv: z.string().default(DEFAULT_API_KEY_ENV),
   baseURL: z.string().default(DEFAULT_BASE_URL),
   model: z.string().default(DEFAULT_MODEL).volatile(),
-  size: z.string().default('1024x1024').volatile(),
+  size: z.string().default('2048x2048').volatile(),
   n: z.number().step(1).min(1).max(MAX_IMAGES).default(1).volatile(),
   watermark: z.boolean().default(false).volatile(),
   prompt_extend: z.boolean().default(true).volatile(),
@@ -84,11 +84,11 @@ function safeStem(value, fallback) {
 
 /** Validate the API's size syntax before spending a request. */
 function normalizeSize(raw) {
-  const size = typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : '1024x1024'
+  const size = typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : '2048x2048'
   if (/^(2k|4k)$/i.test(size)) return size.toUpperCase()
   const match = /^(\d{3,4})x(\d{3,4})$/i.exec(size)
   if (match === null) {
-    throw new ToolArgsError(['size must be "2K", "4K", or WIDTHxHEIGHT such as "1024x1024"'])
+    throw new ToolArgsError(['size must be "2K", "4K", or WIDTHxHEIGHT such as "2048x2048"'])
   }
   const width = Number(match[1])
   const height = Number(match[2])
@@ -278,7 +278,7 @@ export function apply(ctx, config) {
         throw new ToolArgsError([`model must be one of ${SUPPORTED_MODELS.join(', ')}`])
       }
 
-      const size = normalizeSize(args.size ?? liveConfig(config, 'size', '1024x1024'))
+      const size = normalizeSize(args.size ?? liveConfig(config, 'size', '2048x2048'))
       const n = args.n ?? liveConfig(config, 'n', 1)
       if (!Number.isInteger(n) || n < 1 || n > MAX_IMAGES) {
         throw new ToolArgsError([`n must be an integer from 1 to ${MAX_IMAGES}`])

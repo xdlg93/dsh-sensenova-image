@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Replace the size presets with 2K/4K options: 2048×2048 (1:1), 2720×1536 (16:9), 1536×2720 (9:16), 1664×2496 (2:3), 2496×1664 (3:2), and 4096×4096 (1:1); the default is now 2048×2048. Custom sizes remain available.
+
 ## 0.2.0
 
 - Add `sensenova-u1.5-fast` alongside `sensenova-u1.5-lite`; choose the model per tool call or in the settings page.

@@ -14,16 +14,15 @@ window.__ModuleLoader__.load({
       modelLite: 'sensenova-u1.5-lite — 质量优先',
       modelFast: 'sensenova-u1.5-fast — 低延迟',
       size: '尺寸 / 分辨率',
-      sizeHint: '本接口没有单独的 resolution 参数，size 就是输出分辨率。宽高需为 512–4096、32 的倍数，比例不超过 3:1。',
-      size512: '512×512 — 快速预览',
-      size1024: '1024×1024 — 1K 方图（默认）',
-      size1024x576: '1024×576 — 16:9 横图',
-      size576x1024: '576×1024 — 9:16 竖图',
-      size1536: '1536×1536 — 1.5K 方图',
-      size2048: '2048×2048 — 2K 方图',
-      size4096: '4096×4096 — 4K 方图',
+      sizeHint: '本接口没有单独的 resolution 参数，size 就是输出分辨率。默认 2048×2048；宽高需为 512–4096、32 的倍数，比例不超过 3:1。',
+      size2048x2048: '2048×2048 ｜ 1:1 ｜ 2K（默认）',
+      size2720x1536: '2720×1536 ｜ 16:9 ｜ 2K',
+      size1536x2720: '1536×2720 ｜ 9:16 ｜ 2K',
+      size1664x2496: '1664×2496 ｜ 2:3 ｜ 2K',
+      size2496x1664: '2496×1664 ｜ 3:2 ｜ 2K',
+      size4096x4096: '4096×4096 ｜ 1:1 ｜ 4K',
       custom: '自定义尺寸',
-      customHint: '输入“宽x高”，例如 1024x576。',
+      customHint: '输入“宽x高”，例如 2720x1536。',
       n: '生成张数',
       nHint: '一次生成 1–4 张；张数越多，耗时和配额消耗越高。',
       nUnit: '张',
@@ -60,16 +59,15 @@ window.__ModuleLoader__.load({
       modelLite: 'sensenova-u1.5-lite — quality-focused',
       modelFast: 'sensenova-u1.5-fast — lower latency',
       size: 'Size / resolution',
-      sizeHint: 'This API has no separate resolution parameter: size is the output resolution. Width and height must be 512-4096, multiples of 32, and at most 3:1 apart.',
-      size512: '512×512 — fast preview',
-      size1024: '1024×1024 — 1K square (default)',
-      size1024x576: '1024×576 — 16:9 landscape',
-      size576x1024: '576×1024 — 9:16 portrait',
-      size1536: '1536×1536 — 1.5K square',
-      size2048: '2048×2048 — 2K square',
-      size4096: '4096×4096 — 4K square',
+      sizeHint: 'This API has no separate resolution parameter: size is the output resolution. The default is 2048×2048; width and height must be 512-4096, multiples of 32, and at most 3:1 apart.',
+      size2048x2048: '2048×2048 | 1:1 | 2K (default)',
+      size2720x1536: '2720×1536 | 16:9 | 2K',
+      size1536x2720: '1536×2720 | 9:16 | 2K',
+      size1664x2496: '1664×2496 | 2:3 | 2K',
+      size2496x1664: '2496×1664 | 3:2 | 2K',
+      size4096x4096: '4096×4096 | 1:1 | 4K',
       custom: 'Custom size',
-      customHint: 'Enter WIDTHxHEIGHT, for example 1024x576.',
+      customHint: 'Enter WIDTHxHEIGHT, for example 2720x1536.',
       n: 'Images per call',
       nHint: 'Generate 1-4 images per call; more images take longer and consume more quota.',
       nUnit: 'image(s)',
@@ -98,13 +96,12 @@ window.__ModuleLoader__.load({
     }
 
     const PRESETS = [
-      { value: '512x512', key: 'size512' },
-      { value: '1024x1024', key: 'size1024' },
-      { value: '1024x576', key: 'size1024x576' },
-      { value: '576x1024', key: 'size576x1024' },
-      { value: '1536x1536', key: 'size1536' },
-      { value: '2048x2048', key: 'size2048' },
-      { value: '4096x4096', key: 'size4096' },
+      { value: '2048x2048', key: 'size2048x2048' },
+      { value: '2720x1536', key: 'size2720x1536' },
+      { value: '1536x2720', key: 'size1536x2720' },
+      { value: '1664x2496', key: 'size1664x2496' },
+      { value: '2496x1664', key: 'size2496x1664' },
+      { value: '4096x4096', key: 'size4096x4096' },
     ]
     const PRESET_VALUES = new Set(PRESETS.map(preset => preset.value))
     const FORMATS = ['png', 'jpeg', 'webp']
@@ -253,7 +250,7 @@ window.__ModuleLoader__.load({
       }
 
       const model = current.model ?? 'sensenova-u1.5-lite'
-      const size = current.size ?? '1024x1024'
+      const size = current.size ?? '2048x2048'
       const n = current.n ?? 1
       const watermark = current.watermark === true
       const promptExtend = current.prompt_extend !== false
@@ -294,7 +291,7 @@ window.__ModuleLoader__.load({
               onChange: event => {
                 if (event.target.value === 'custom') {
                   setCustomMode(true)
-                  if (!size) set('size', '1024x1024')
+                  if (!size) set('size', '2048x2048')
                 } else {
                   setCustomMode(false)
                   set('size', event.target.value)
@@ -308,7 +305,7 @@ window.__ModuleLoader__.load({
               className: 'sn-input',
               value: size,
               disabled: !writable || busy,
-              placeholder: '1024x576',
+              placeholder: '2720x1536',
               onChange: event => set('size', event.target.value),
             }) : null,
             showCustom ? h('div', { className: 'sn-mini-hint' }, t('customHint')) : null,
