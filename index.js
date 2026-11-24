@@ -21,6 +21,8 @@ const DEFAULT_BASE_URL = 'https://token.sensenova.cn/v1'
 const DEFAULT_MODEL = 'sensenova-u1.5-lite'
 const SUPPORTED_MODELS = ['sensenova-u1.5-lite', 'sensenova-u1.5-fast']
 const DEFAULT_API_KEY_ENV = 'SENSENOVA_API_KEY'
+/** Optional user-supplied key; when configured it outranks `apiKeyEnv`. */
+const USER_API_KEY_ENV = 'SENSENOVA_IMAGE_API_KEY'
 const DEFAULT_OUTPUT_DIR = 'generated-images'
 const DEFAULT_REQUEST_TIMEOUT_MS = 180_000
 const TOOL_TIMEOUT_MS = 300_000
@@ -102,8 +104,8 @@ function normalizeSize(raw) {
   return `${width}x${height}`
 }
 
-/** Resolve the API key from the DSH credential store, then the launch environment. */
-async function resolveApiKey(ctx, ref) {
+/** Resolve one credential reference from the DSH credential store, then the launch environment. */
+async function resolveKeyRef(ctx, ref) {
   const credentials = ctx.get('credentials')
   if (credentials !== undefined) {
     const hit = await credentials.resolve(ref)
@@ -111,8 +113,22 @@ async function resolveApiKey(ctx, ref) {
   }
   const fromEnvironment = process.env[ref]
   if (typeof fromEnvironment === 'string' && fromEnvironment.trim() !== '') return fromEnvironment.trim()
+  return undefined
+}
+
+/**
+ * Resolve the API key. A key saved on the settings page under
+ * `SENSENOVA_IMAGE_API_KEY` always wins; without one, the configured
+ * `apiKeyEnv` (default `SENSENOVA_API_KEY`) remains the fallback.
+ */
+async function resolveApiKey(ctx, ref) {
+  const custom = await resolveKeyRef(ctx, USER_API_KEY_ENV)
+  if (custom !== undefined) return custom
+  const fallback = await resolveKeyRef(ctx, ref)
+  if (fallback !== undefined) return fallback
   throw new Error(
-    `sensenova_generate_image: credential ${ref} is not set; store it on the DSH Models page or export it`,
+    `sensenova_generate_image: no API key; set ${USER_API_KEY_ENV} in Settings, `
+    + `or configure ${ref} in the DSH credential store / environment`,
   )
 }
 

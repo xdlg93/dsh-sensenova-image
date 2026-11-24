@@ -4,11 +4,25 @@ window.__ModuleLoader__.load({
     const React = require('react')
     const h = React.createElement
     const NS = 'sensenova-image'
+    const USER_API_KEY_REF = 'SENSENOVA_IMAGE_API_KEY'
 
     const zh = {
       nav: 'SenseNova 文生图',
       title: 'SenseNova 文生图',
       intro: '设置默认请求参数。智能体调用 sensenova_generate_image 时，未显式传入的参数会使用这里的值。',
+      apiKey: 'API Key',
+      apiKeyHint: '默认使用当前配置的 SENSENOVA_API_KEY；填写并保存后优先使用你的 Key。Key 保存在 DSH 凭据库，不会写入配置文件。',
+      apiKeyPlaceholder: 'sk-...',
+      apiKeyDefault: '未设置自定义 Key，使用默认配置。',
+      apiKeyConfigured: '已设置自定义 Key，优先使用它。',
+      apiKeySave: '保存 Key',
+      apiKeyClear: '清除',
+      apiKeySaving: '保存中…',
+      apiKeySaved: 'Key 已保存。',
+      apiKeyCleared: '已清除，恢复默认配置。',
+      apiKeyFailed: 'Key 保存失败，请重试。',
+      apiKeyBlank: 'Key 不能为空。',
+      apiKeyReadOnly: '当前凭据不可写。',
       model: '模型',
       modelHint: 'Lite 质量优先，适合海报、信息图、成品图；Fast 延迟更低，适合快速预览和批量草稿。',
       modelLite: 'sensenova-u1.5-lite — 质量优先',
@@ -54,6 +68,19 @@ window.__ModuleLoader__.load({
       nav: 'SenseNova image',
       title: 'SenseNova image generation',
       intro: 'Set the default request parameters. When an agent calls sensenova_generate_image without an explicit value, the value here is used.',
+      apiKey: 'API key',
+      apiKeyHint: 'Uses the configured SENSENOVA_API_KEY by default. A key saved here takes precedence. The key is stored in the DSH credential store, never in the plugin configuration.',
+      apiKeyPlaceholder: 'sk-...',
+      apiKeyDefault: 'No custom key; using the default configuration.',
+      apiKeyConfigured: 'A custom key is saved and takes precedence.',
+      apiKeySave: 'Save key',
+      apiKeyClear: 'Clear',
+      apiKeySaving: 'Saving…',
+      apiKeySaved: 'Key saved.',
+      apiKeyCleared: 'Cleared; back to the default configuration.',
+      apiKeyFailed: 'Could not save the key. Please retry.',
+      apiKeyBlank: 'The key must not be blank.',
+      apiKeyReadOnly: 'This credential is read-only.',
       model: 'Model',
       modelHint: 'Lite favors quality for posters, infographics, and final images. Fast has lower latency for previews and batch drafts.',
       modelLite: 'sensenova-u1.5-lite — quality-focused',
@@ -148,6 +175,9 @@ window.__ModuleLoader__.load({
       .sn-btn:disabled { opacity: 0.6; cursor: not-allowed; }
       .sn-btn-primary { border: 1px solid var(--dsw-alias-brand-primary); background: var(--dsw-alias-brand-primary); color: #fff; }
       .sn-btn-secondary { border: 1px solid var(--dsw-alias-border-l2); background: transparent; color: var(--dsw-alias-label-primary); }
+      .sn-btn-small { padding: 5px 10px; font-size: 12px; }
+      .sn-key-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+      .sn-key-state { color: var(--dsw-alias-label-secondary); font-size: 11px; line-height: 16px; }
       .sn-status { font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary); }
       .sn-error { color: var(--dsw-alias-state-error-primary); }
       @media (max-width: 640px) {
@@ -172,14 +202,34 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function Section({ form, t }) {
+    function Section({ form, t, credentials }) {
       const [snapshot, setSnapshot] = React.useState(() => form.getSnapshot())
       const [draft, setDraft] = React.useState(null)
       const [status, setStatus] = React.useState('idle')
       const [error, setError] = React.useState('')
       const [customMode, setCustomMode] = React.useState(false)
+      const [keyDraft, setKeyDraft] = React.useState('')
+      const [keyInfo, setKeyInfo] = React.useState({ configured: false, writable: true })
+      const [keyStatus, setKeyStatus] = React.useState('idle')
+      const [keyError, setKeyError] = React.useState('')
 
       React.useEffect(() => form.subscribe(() => setSnapshot(form.getSnapshot())), [form])
+
+      React.useEffect(() => {
+        if (credentials === undefined) return
+        let active = true
+        const load = async () => {
+          try {
+            const result = await credentials.describe([USER_API_KEY_REF])
+            if (!active || !result.ok) return
+            setKeyInfo(result.value[USER_API_KEY_REF] ?? { configured: false, writable: true })
+          } catch (_failure) {
+            if (active) setKeyInfo({ configured: false, writable: false })
+          }
+        }
+        void load()
+        return () => { active = false }
+      }, [credentials])
 
       const value = snapshot.value ?? {}
       const current = draft ?? value
@@ -242,6 +292,43 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const saveKey = async () => {
+        if (!writable || keyInfo.writable === false) return
+        const value = keyDraft.trim()
+        if (value === '') {
+          setKeyStatus('error')
+          setKeyError(t('apiKeyBlank'))
+          return
+        }
+        setKeyStatus('saving')
+        setKeyError('')
+        try {
+          await credentials.set(USER_API_KEY_REF, value)
+          const result = await credentials.describe([USER_API_KEY_REF])
+          if (result.ok) setKeyInfo(result.value[USER_API_KEY_REF] ?? { configured: true, writable: true })
+          setKeyDraft('')
+          setKeyStatus('saved')
+        } catch (_failure) {
+          setKeyStatus('error')
+          setKeyError(t('apiKeyFailed'))
+        }
+      }
+
+      const clearKey = async () => {
+        if (keyInfo.writable === false) return
+        setKeyStatus('saving')
+        setKeyError('')
+        try {
+          await credentials.unset(USER_API_KEY_REF)
+          const result = await credentials.describe([USER_API_KEY_REF])
+          if (result.ok) setKeyInfo(result.value[USER_API_KEY_REF] ?? { configured: false, writable: true })
+          setKeyStatus('cleared')
+        } catch (_failure) {
+          setKeyStatus('error')
+          setKeyError(t('apiKeyFailed'))
+        }
+      }
+
       if (snapshot.status === 'unavailable') {
         return h('div', { className: 'sn-section' }, h('div', { className: 'sn-hint' }, t('unavailable')))
       }
@@ -258,6 +345,9 @@ window.__ModuleLoader__.load({
       const outputDir = current.outputDir ?? 'generated-images'
       const showCustom = customMode || !PRESET_VALUES.has(size)
       const sizeSelectValue = showCustom ? 'custom' : size
+      const keyConfigured = keyInfo.configured === true
+      const keyWritable = keyInfo.writable !== false
+      const keyBusy = keyStatus === 'saving'
 
       const row = (label, hint, control) => h('div', { className: 'sn-row' },
         h('div', { className: 'sn-row-text' },
@@ -274,6 +364,41 @@ window.__ModuleLoader__.load({
           h('div', { className: 'sn-intro' }, t('intro')),
         ),
         h('div', { className: 'sn-card' },
+          row(t('apiKey'), t('apiKeyHint'), h('div', { className: 'sn-stack' },
+            h('input', {
+              className: 'sn-input',
+              type: 'password',
+              autoComplete: 'new-password',
+              value: keyDraft,
+              disabled: !writable || keyBusy || !keyWritable,
+              placeholder: keyConfigured ? (keyInfo.masked ?? '••••••••') : t('apiKeyPlaceholder'),
+              onChange: event => {
+                setKeyDraft(event.target.value)
+                setKeyStatus('idle')
+                setKeyError('')
+              },
+            }),
+            h('div', { className: 'sn-key-actions' },
+              h('button', {
+                type: 'button',
+                className: 'sn-btn sn-btn-primary sn-btn-small',
+                disabled: !writable || keyBusy || !keyWritable || keyDraft.trim() === '',
+                onClick: saveKey,
+              }, keyBusy ? t('apiKeySaving') : t('apiKeySave')),
+              keyConfigured ? h('button', {
+                type: 'button',
+                className: 'sn-btn sn-btn-secondary sn-btn-small',
+                disabled: !writable || keyBusy || !keyWritable,
+                onClick: clearKey,
+              }, t('apiKeyClear')) : null,
+              h('span', { className: 'sn-key-state' }, keyConfigured ? t('apiKeyConfigured') : t('apiKeyDefault')),
+            ),
+            keyStatus === 'saved' ? h('div', { className: 'sn-mini-hint' }, t('apiKeySaved')) : null,
+            keyStatus === 'cleared' ? h('div', { className: 'sn-mini-hint' }, t('apiKeyCleared')) : null,
+            keyStatus === 'error' ? h('div', { className: 'sn-mini-hint sn-error', role: 'alert' }, keyError) : null,
+            keyConfigured && keyInfo.masked ? h('div', { className: 'sn-mini-hint' }, keyInfo.masked) : null,
+            !keyWritable ? h('div', { className: 'sn-mini-hint sn-error' }, t('apiKeyReadOnly')) : null,
+          )),
           row(t('model'), t('modelHint'), h('select', {
             className: 'sn-select',
             value: model,
@@ -367,7 +492,7 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'locale', 'configForms'],
+      inject: ['slots', 'locale', 'configForms', 'remote', 'remote.credentials'],
       apply(ctx) {
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-sensenova-image: locale')
         const t = ctx.locale.bind(NS)
@@ -377,7 +502,7 @@ window.__ModuleLoader__.load({
           id: 'sensenova-image',
           order: 30,
           label: () => t('nav'),
-          inject: () => ({ form, t }),
+          inject: () => ({ form, t, credentials: ctx.remote.credentials }),
         }, Section))
       },
     }

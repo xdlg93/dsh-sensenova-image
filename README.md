@@ -21,14 +21,14 @@ Supported models:
 2. Enable **Custom plugin indexes** under **Experimental plugins**.
 3. Open **Discover → Add index source** and enter the index URL:
    `https://xdlg93.github.io/dsh-sensenova-image/index.json`
-4. Search for `sensenova` and install version `0.2.0` (or `0.1.0` from the Versions list).
+4. Search for `sensenova` and install version `0.2.1` (or `0.1.0` / `0.2.0` from the Versions list).
 
-The API key is read from the `SENSENOVA_API_KEY` credential reference. Store it on the DSH Models page or export it before launching DSH.
+The API key is read from the `SENSENOVA_API_KEY` credential reference by default. You can also save a custom key on **Settings → SenseNova 文生图**: it is stored in the DSH credential store and takes precedence; clear it to fall back to `SENSENOVA_API_KEY`.
 
 ## Install manually from Git
 
 ```sh
-dsh plugin --profile web add 'git+https://github.com/xdlg93/dsh-sensenova-image.git#v0.2.0'
+dsh plugin --profile web add 'git+https://github.com/xdlg93/dsh-sensenova-image.git#v0.2.1'
 ```
 
 For a monorepo the plugin manager uses the package directory; this repository keeps the package at the root.
@@ -55,8 +55,9 @@ Open **Settings → SenseNova 文生图**:
 
 | Option | Values | Note |
 | --- | --- | --- |
+| API key | Text (password input) | Uses `SENSENOVA_API_KEY` by default; a saved custom key takes precedence and is stored in the DSH credential store, not in the plugin configuration |
 | Model | Lite / Fast | Lite favors quality; Fast has lower latency |
-| Size / resolution | 512×512, 1024×1024, 1024×576, 576×1024, 1536×1536, 2048×2048 (2K), 4096×4096 (4K), custom | The API has no separate `resolution` parameter; `size` is the output resolution. Width and height must be 512–4096, multiples of 32, at most 3:1 apart |
+| Size / resolution | 2048×2048 (1:1, 2K, default), 2720×1536 (16:9, 2K), 1536×2720 (9:16, 2K), 1664×2496 (2:3, 2K), 2496×1664 (3:2, 2K), 4096×4096 (1:1, 4K), custom | The API has no separate `resolution` parameter; `size` is the output resolution. Width and height must be 512–4096, multiples of 32, at most 3:1 apart |
 | Images per call | 1–4 | More images take longer and consume more quota |
 | Watermark | On / Off | Off produces a clean original during the free public beta |
 | Prompt auto-extend | On / Off | On lets the provider expand the prompt |
@@ -67,10 +68,11 @@ Saved values are volatile configuration: they apply to the next tool call withou
 
 ## Versions
 
+- `0.2.1` — 2K/4K size presets, default 2048×2048, custom sizes.
 - `0.2.0` — Fast model + settings page.
 - `0.1.0` — initial Lite-only tool.
 
-Both are preserved as Git tags (`v0.1.0`, `v0.2.0`) and in the plugin market index.
+All three are preserved as Git tags (`v0.1.0`, `v0.2.0`, `v0.2.1`) and in the plugin market index. Each declares DSH compatibility `^0.2.2-rc.5 || ^0.2.3-alpha.2`.
 
 ## Development
 
@@ -81,7 +83,7 @@ node --check index.js
 node --check client.js
 ```
 
-`engines.dsh` is `^0.2.3-alpha.2`.
+`engines.dsh` is `^0.2.2-rc.5 || ^0.2.3-alpha.2`.
 
 ## License
 
