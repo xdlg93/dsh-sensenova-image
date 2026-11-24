@@ -20,9 +20,9 @@ Supported models:
 1. Open **Plugins** in the DSH Web GUI.
 2. Enable **Custom plugin indexes** under **Experimental plugins**.
 3. Open **Discover → Add index source** and enter the index URL:
-   `https://raw.githubusercontent.com/xdlg93/dsh-sensenova-image/main/site/index.json`
+   `https://cdn.jsdelivr.net/gh/xdlg93/dsh-sensenova-image@main/site/index.json`
 
-   The GitHub Pages mirror is `https://xdlg93.github.io/dsh-sensenova-image/index.json`; it can lag while Pages deployments are retried, so the raw GitHub URL is the canonical source.
+   Mirrors: `https://raw.githubusercontent.com/xdlg93/dsh-sensenova-image/main/site/index.json` and `https://xdlg93.github.io/dsh-sensenova-image/index.json`. The CDN and raw mirrors can lag briefly; the GitHub Pages mirror can lag while its deployments are retried.
 4. Search for `sensenova` and install version `0.2.3` (or an older version from the Versions list).
 
 The API key is read from the `SENSENOVA_API_KEY` credential reference by default. You can also save a custom key on **Settings → SenseNova 文生图**: it is stored in the DSH credential store and takes precedence; clear it to fall back to `SENSENOVA_API_KEY`.
