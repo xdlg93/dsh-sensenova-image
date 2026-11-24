@@ -32,27 +32,39 @@
       },
       "versions": [
         {
-          "version": "0.2.0",
-          "publishTimestamp": 1795443834,
+          "version": "0.2.1",
+          "publishTimestamp": 1795490972,
           "source": {
             "type": "git",
             "url": "https://github.com/xdlg93/dsh-sensenova-image",
-            "commit": "ca59e9af062a2dea12188ef7a97d38da5c8b10ea"
+            "commit": "f18cae4b7b07e3309f531faa3b0be4a4abf4f0e3"
           },
           "engines": {
-            "dsh": "^0.2.3-alpha.2"
+            "dsh": "^0.2.2-rc.5 || ^0.2.3-alpha.2"
+          }
+        },
+        {
+          "version": "0.2.0",
+          "publishTimestamp": 1795490958,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/xdlg93/dsh-sensenova-image",
+            "commit": "ec1e8f3b4253096f64606325683abfb0ed3df33b"
+          },
+          "engines": {
+            "dsh": "^0.2.2-rc.5 || ^0.2.3-alpha.2"
           }
         },
         {
           "version": "0.1.0",
-          "publishTimestamp": 1795443826,
+          "publishTimestamp": 1795490953,
           "source": {
             "type": "git",
             "url": "https://github.com/xdlg93/dsh-sensenova-image",
-            "commit": "27d8f2687f48f3903deda885d8dab568f6989630"
+            "commit": "f001f39669cfe277d689ef1f856307f5e55b16b8"
           },
           "engines": {
-            "dsh": "^0.2.3-alpha.2"
+            "dsh": "^0.2.2-rc.5 || ^0.2.3-alpha.2"
           }
         }
       ]
