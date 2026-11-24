@@ -1,7 +1,7 @@
 {
   "meta": {
-    "title": "SenseNova image generation",
-    "description": "Generate images with SenseNova U1.5 Lite or U1.5 Fast, with a settings page for model, size, watermark, and other defaults.",
+    "title": "SenseNova image (U1.6 Lite)",
+    "description": "Generate images with SenseNova U1.6 Lite and check them with sensenova-6.8-flash; the settings page controls size, watermark, and other defaults.",
     "detail": "docs/DETAIL.md"
   }
 }

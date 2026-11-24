@@ -1,7 +1,7 @@
 {
   "meta": {
-    "title": "SenseNova 文生图（Lite / Fast）",
-    "description": "使用 SenseNova U1.5 Lite 或 U1.5 Fast 生成图片，并可在设置页选择模型、尺寸、水印等默认参数。",
+    "title": "SenseNova 文生图（U1.6 Lite）",
+    "description": "使用 SenseNova U1.6 Lite 生成图片，并用 sensenova-6.8-flash 做视觉核对；设置页可选择尺寸、水印等默认参数。",
     "detail": "docs/DETAIL.md"
   }
 }

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0
+
+- Switch the image model to `sensenova-u1.6-lite`; remove `sensenova-u1.5-lite` and `sensenova-u1.5-fast`.
+- Add an automatic visual check with `sensenova-6.8-flash` after each image; the same API key and base URL are used for both models, and a failed check does not discard the image.
+- Replace the settings-page model selector with a **Visual check** toggle.
+- Raise the image request timeout to 5 minutes and the tool timeout to 6 minutes for U1.6 generation.
+
 ## 0.2.3
 
 - Fix local directory (`link:`) installs: declare `@deepseek-ai/dsh-tools` and `@deepseek-ai/schemastery` in `peerDependencies`, so the profile resolver maps them for importers outside the profile. npm and Git installs are unaffected.

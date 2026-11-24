@@ -7,9 +7,9 @@ window.__ModuleLoader__.load({
     const USER_API_KEY_REF = 'SENSENOVA_IMAGE_API_KEY'
 
     const zh = {
-      nav: 'SenseNova 文生图',
-      title: 'SenseNova 文生图',
-      intro: '设置默认请求参数。智能体调用 sensenova_generate_image 时，未显式传入的参数会使用这里的值。',
+      nav: 'SenseNova 文生图（U1.6 Lite）',
+      title: 'SenseNova 文生图（U1.6 Lite）',
+      intro: '设置默认请求参数。生成后会用 sensenova-6.8-flash 做视觉核对；智能体调用 sensenova_generate_image 时，未显式传入的参数会使用这里的值。',
       apiKey: 'API Key',
       apiKeyHint: '默认使用当前配置的 SENSENOVA_API_KEY；填写并保存后优先使用你的 Key。Key 保存在 DSH 凭据库，不会写入配置文件。',
       apiKeyPlaceholder: 'sk-...',
@@ -23,10 +23,6 @@ window.__ModuleLoader__.load({
       apiKeyFailed: 'Key 保存失败，请重试。',
       apiKeyBlank: 'Key 不能为空。',
       apiKeyReadOnly: '当前凭据不可写。',
-      model: '模型',
-      modelHint: 'Lite 质量优先，适合海报、信息图、成品图；Fast 延迟更低，适合快速预览和批量草稿。',
-      modelLite: 'sensenova-u1.5-lite — 质量优先',
-      modelFast: 'sensenova-u1.5-fast — 低延迟',
       size: '尺寸 / 分辨率',
       sizeHint: '本接口没有单独的 resolution 参数，size 就是输出分辨率。默认 2048×2048；宽高需为 512–4096、32 的倍数，比例不超过 3:1。',
       size2048x2048: '2048×2048 ｜ 1:1 ｜ 2K（默认）',
@@ -44,6 +40,8 @@ window.__ModuleLoader__.load({
       watermarkHint: '开启后图片带平台水印；公测期关闭可生成无水印原图。',
       promptExtend: '提示词自动扩写',
       promptExtendHint: '开启后服务端会扩写提示词，细节更丰富；关闭则严格按原文生成。',
+      verification: '视觉核对',
+      verificationHint: '生成后用 sensenova-6.8-flash 检查图片是否满足提示词；核对失败不影响图片保存。',
       format: '输出格式',
       formatHint: 'PNG 无损、体积较大；JPEG / WebP 体积更小，适合网页和分享。',
       outputDir: '保存目录',
@@ -65,9 +63,9 @@ window.__ModuleLoader__.load({
     }
 
     const en = {
-      nav: 'SenseNova image',
-      title: 'SenseNova image generation',
-      intro: 'Set the default request parameters. When an agent calls sensenova_generate_image without an explicit value, the value here is used.',
+      nav: 'SenseNova image (U1.6 Lite)',
+      title: 'SenseNova image (U1.6 Lite)',
+      intro: 'Set the default request parameters. Each generated image is checked with sensenova-6.8-flash; when an agent calls sensenova_generate_image without an explicit value, the value here is used.',
       apiKey: 'API key',
       apiKeyHint: 'Uses the configured SENSENOVA_API_KEY by default. A key saved here takes precedence. The key is stored in the DSH credential store, never in the plugin configuration.',
       apiKeyPlaceholder: 'sk-...',
@@ -81,10 +79,6 @@ window.__ModuleLoader__.load({
       apiKeyFailed: 'Could not save the key. Please retry.',
       apiKeyBlank: 'The key must not be blank.',
       apiKeyReadOnly: 'This credential is read-only.',
-      model: 'Model',
-      modelHint: 'Lite favors quality for posters, infographics, and final images. Fast has lower latency for previews and batch drafts.',
-      modelLite: 'sensenova-u1.5-lite — quality-focused',
-      modelFast: 'sensenova-u1.5-fast — lower latency',
       size: 'Size / resolution',
       sizeHint: 'This API has no separate resolution parameter: size is the output resolution. The default is 2048×2048; width and height must be 512-4096, multiples of 32, and at most 3:1 apart.',
       size2048x2048: '2048×2048 | 1:1 | 2K (default)',
@@ -102,6 +96,8 @@ window.__ModuleLoader__.load({
       watermarkHint: 'Adds the platform watermark. Leave it off during the free public beta for a clean original.',
       promptExtend: 'Prompt auto-extend',
       promptExtendHint: 'Lets the provider expand and refine the prompt for richer detail; off follows the prompt literally.',
+      verification: 'Visual check',
+      verificationHint: 'Checks each image against the prompt with sensenova-6.8-flash; a failed check does not discard the image.',
       format: 'Output format',
       formatHint: 'PNG is lossless and larger; JPEG and WebP are smaller for the web and sharing.',
       outputDir: 'Save directory',
@@ -266,7 +262,7 @@ window.__ModuleLoader__.load({
         }
         next.outputDir = String(next.outputDir ?? '').trim() || 'generated-images'
         const ops = []
-        for (const key of ['model', 'size', 'n', 'watermark', 'prompt_extend', 'output_format', 'outputDir']) {
+        for (const key of ['size', 'n', 'watermark', 'prompt_extend', 'verify', 'output_format', 'outputDir']) {
           if (next[key] !== value[key]) ops.push({ op: 'set', path: [key], value: next[key] })
         }
         if (ops.length === 0) {
@@ -336,11 +332,11 @@ window.__ModuleLoader__.load({
         return h('div', { className: 'sn-section' }, h('div', { className: 'sn-hint' }, t('loading')))
       }
 
-      const model = current.model ?? 'sensenova-u1.5-lite'
       const size = current.size ?? '2048x2048'
       const n = current.n ?? 1
       const watermark = current.watermark === true
       const promptExtend = current.prompt_extend !== false
+      const verify = current.verify !== false
       const format = current.output_format ?? 'png'
       const outputDir = current.outputDir ?? 'generated-images'
       const showCustom = customMode || !PRESET_VALUES.has(size)
@@ -399,15 +395,6 @@ window.__ModuleLoader__.load({
             keyConfigured && keyInfo.masked ? h('div', { className: 'sn-mini-hint' }, keyInfo.masked) : null,
             !keyWritable ? h('div', { className: 'sn-mini-hint sn-error' }, t('apiKeyReadOnly')) : null,
           )),
-          row(t('model'), t('modelHint'), h('select', {
-            className: 'sn-select',
-            value: model,
-            disabled: !writable || busy,
-            onChange: event => set('model', event.target.value),
-          },
-          h('option', { value: 'sensenova-u1.5-lite' }, t('modelLite')),
-          h('option', { value: 'sensenova-u1.5-fast' }, t('modelFast')),
-          )),
           row(t('size'), t('sizeHint'), h('div', { className: 'sn-stack' },
             h('select', {
               className: 'sn-select',
@@ -452,6 +439,12 @@ window.__ModuleLoader__.load({
             disabled: !writable || busy,
             label: t('promptExtend'),
             onChange: next => set('prompt_extend', next),
+          })),
+          row(t('verification'), t('verificationHint'), h(Toggle, {
+            checked: verify,
+            disabled: !writable || busy,
+            label: t('verification'),
+            onChange: next => set('verify', next),
           })),
           row(t('format'), t('formatHint'), h('select', {
             className: 'sn-select',

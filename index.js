@@ -1,5 +1,5 @@
 /**
- * SenseNova U1.5 Lite text-to-image tool.
+ * SenseNova U1.6 Lite text-to-image tool with 6.8 Flash visual checks.
  *
  * The model is an image-generation model served by an OpenAI-compatible
  * `/v1/images/generations` endpoint; it has no chat-completions route. This
@@ -18,14 +18,15 @@ export const name = 'sensenova-image'
 export const inject = ['tools', 'workingDirectory']
 
 const DEFAULT_BASE_URL = 'https://token.sensenova.cn/v1'
-const DEFAULT_MODEL = 'sensenova-u1.5-lite'
-const SUPPORTED_MODELS = ['sensenova-u1.5-lite', 'sensenova-u1.5-fast']
+const DEFAULT_MODEL = 'sensenova-u1.6-lite'
+const VISION_MODEL = 'sensenova-6.8-flash'
 const DEFAULT_API_KEY_ENV = 'SENSENOVA_API_KEY'
 /** Optional user-supplied key; when configured it outranks `apiKeyEnv`. */
 const USER_API_KEY_ENV = 'SENSENOVA_IMAGE_API_KEY'
 const DEFAULT_OUTPUT_DIR = 'generated-images'
-const DEFAULT_REQUEST_TIMEOUT_MS = 180_000
-const TOOL_TIMEOUT_MS = 300_000
+const DEFAULT_REQUEST_TIMEOUT_MS = 300_000
+const TOOL_TIMEOUT_MS = 360_000
+const VISION_TIMEOUT_MS = 120_000
 const MAX_IMAGES = 4
 
 const OUTPUT_FORMATS = {
@@ -50,6 +51,7 @@ export const Config = z.object({
   n: z.number().step(1).min(1).max(MAX_IMAGES).default(1).volatile(),
   watermark: z.boolean().default(false).volatile(),
   prompt_extend: z.boolean().default(true).volatile(),
+  verify: z.boolean().default(true).volatile(),
   output_format: z.string().default('png').volatile(),
   outputDir: z.string().default(DEFAULT_OUTPUT_DIR).volatile(),
   requestTimeoutMs: z.number().default(DEFAULT_REQUEST_TIMEOUT_MS),
@@ -187,6 +189,102 @@ async function readImageBytes(item, signal) {
   throw new Error('sensenova_generate_image: the API returned neither url nor b64_json')
 }
 
+/** Extract the JSON verdict from a vision reply, tolerating code fences and prose. */
+function parseVerdict(content) {
+  const text = typeof content === 'string' ? content.trim() : ''
+  if (text === '') return undefined
+  const fenced = text.replace(/^```(?:json)?\s*/iu, '').replace(/\s*```$/u, '')
+  try { return JSON.parse(fenced) } catch (_failure) { /* fall through */ }
+  const start = fenced.indexOf('{')
+  const end = fenced.lastIndexOf('}')
+  if (start !== -1 && end > start) {
+    try { return JSON.parse(fenced.slice(start, end + 1)) } catch (_failure) { /* fall through */ }
+  }
+  return undefined
+}
+
+function normalizeVerdict(value) {
+  return value === 'pass' || value === 'warn' || value === 'fail' ? value : 'warn'
+}
+
+/**
+ * Ask `sensenova-6.8-flash` to check one generated image against the prompt.
+ * The key and base URL are the same as the image call; a failure is reported
+ * in the result instead of discarding the image.
+ */
+async function verifyImage({ baseURL, apiKey, prompt, imageUrl, signal, timeoutMs }) {
+  const instruction = [
+    '你是严格的图像质检员。只输出 JSON，不要输出其他文字。',
+    `用户要求：${prompt}`,
+    '请核对这张生成图是否满足要求，检查主体、颜色、构图、文字和明显瑕疵。',
+    '输出 JSON：{"verdict":"pass|warn|fail","summary":"一句话结论","issues":["问题1"]}。',
+  ].join('\n')
+  const body = {
+    model: VISION_MODEL,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'text', text: instruction },
+        { type: 'image_url', image_url: { url: imageUrl } },
+      ],
+    }],
+    max_tokens: 800,
+    temperature: 0.1,
+  }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(new Error(`vision request timed out after ${timeoutMs} ms`)), timeoutMs)
+  const forwardAbort = () => controller.abort(signal.reason)
+  signal.addEventListener('abort', forwardAbort, { once: true })
+  try {
+    const response = await fetch(`${baseURL.replace(/\/+$/u, '')}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    })
+    const raw = await response.text()
+    let payload
+    try {
+      payload = raw === '' ? undefined : JSON.parse(raw)
+    } catch (_failure) {
+      payload = undefined
+    }
+    if (!response.ok) {
+      const detail = payload?.error?.message ?? payload?.message ?? raw.slice(0, 300)
+      throw new Error(`HTTP ${response.status}: ${detail}`)
+    }
+    const content = payload?.choices?.[0]?.message?.content
+    const parsed = parseVerdict(content)
+    if (parsed === undefined) {
+      return {
+        model: VISION_MODEL,
+        status: 'error',
+        summary: String(content ?? 'empty vision response').slice(0, 500),
+      }
+    }
+    return {
+      model: VISION_MODEL,
+      status: normalizeVerdict(parsed.verdict),
+      summary: typeof parsed.summary === 'string' ? parsed.summary.slice(0, 500) : '',
+      issues: Array.isArray(parsed.issues)
+        ? parsed.issues.filter(issue => typeof issue === 'string').slice(0, 8)
+        : [],
+    }
+  } catch (error) {
+    return {
+      model: VISION_MODEL,
+      status: 'error',
+      summary: error instanceof Error ? error.message : String(error),
+    }
+  } finally {
+    clearTimeout(timer)
+    signal.removeEventListener('abort', forwardAbort)
+  }
+}
+
 export function apply(ctx, config) {
   const baseURL = textConfig(config, 'baseURL', DEFAULT_BASE_URL)
   const apiKeyEnv = textConfig(config, 'apiKeyEnv', DEFAULT_API_KEY_ENV)
@@ -200,24 +298,20 @@ export function apply(ctx, config) {
   ctx.tools.register(defineTool({
     name: 'sensenova_generate_image',
     description:
-      'Generate one or more images from a text prompt with SenseNova U1.5 image models: '
-      + 'sensenova-u1.5-lite (quality-focused) or sensenova-u1.5-fast (lower latency). '
-      + 'These are image-generation models, not chat models. Images are downloaded and saved in the session '
-      + 'working directory; the result contains each absolute path, byte size, temporary URL, and ready-to-use '
-      + 'Markdown. Put the returned Markdown in your reply so the user can see the image. Use this tool for any '
-      + 'text-to-image request, such as illustrations, posters, product shots, or infographics. '
-      + 'Model, size, n, watermark, prompt_extend, and output_format default to the values on the plugin settings '
-      + 'page; explicit parameters override them.',
+      'Generate one or more images from a text prompt with SenseNova U1.6 Lite (sensenova-u1.6-lite). '
+      + 'After saving each image, SenseNova 6.8 Flash (sensenova-6.8-flash) checks it against the prompt and '
+      + 'reports pass/warn/fail plus issues; a failed check does not discard the image. '
+      + 'The image model is an image-generation model, not a chat model. Images are downloaded and saved in the '
+      + 'session working directory; the result contains each absolute path, byte size, temporary URL, ready-to-use '
+      + 'Markdown, and the visual-check result. Put the returned Markdown in your reply so the user can see the '
+      + 'image. Use this tool for any text-to-image request, such as illustrations, posters, product shots, or '
+      + 'infographics. Size, n, watermark, prompt_extend, verify, and output_format default to the values on the '
+      + 'plugin settings page; explicit parameters override them.',
     parameters: {
       prompt: {
         type: 'string',
         required: true,
         description: 'Image description. Chinese and English are both supported; longer, more specific prompts work well.',
-      },
-      model: {
-        type: 'string',
-        enum: SUPPORTED_MODELS,
-        description: 'Image model: sensenova-u1.5-lite (quality-focused) or sensenova-u1.5-fast (lower latency). Omit to use the settings page default.',
       },
       size: {
         type: 'string',
@@ -234,6 +328,10 @@ export function apply(ctx, config) {
       prompt_extend: {
         type: 'boolean',
         description: 'Let the provider expand and refine the prompt automatically. Omit to use the settings page default.',
+      },
+      verify: {
+        type: 'boolean',
+        description: 'Check each generated image with sensenova-6.8-flash. Omit to use the settings page default.',
       },
       output_format: {
         type: 'string',
@@ -264,6 +362,16 @@ export function apply(ctx, config) {
                 bytes: { type: 'integer', required: true },
                 markdown: { type: 'string', required: true },
                 url: { type: 'string' },
+                verification: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    model: { type: 'string', required: true },
+                    status: { type: 'string', required: true, enum: ['pass', 'warn', 'fail', 'error'] },
+                    summary: { type: 'string' },
+                    issues: { type: 'array', items: { type: 'string' } },
+                  },
+                },
               },
             },
           },
@@ -277,6 +385,12 @@ export function apply(ctx, config) {
           lines.push(`- ${image.path} (${image.bytes} bytes)`)
           lines.push(`  Markdown: ${image.markdown}`)
           if (image.url !== undefined) lines.push(`  Temporary URL (24h): ${image.url}`)
+          if (image.verification !== undefined) {
+            lines.push(`  Visual check (${image.verification.model}): ${image.verification.status} — ${image.verification.summary ?? ''}`)
+            if (Array.isArray(image.verification.issues) && image.verification.issues.length > 0) {
+              lines.push(`  Issues: ${image.verification.issues.join('; ')}`)
+            }
+          }
         }
         lines.push('Include the Markdown line in your reply so the user can see the image.')
         return [{ type: 'text', text: lines.join('\n') }]
@@ -289,10 +403,8 @@ export function apply(ctx, config) {
       const prompt = args.prompt.trim()
       if (prompt === '') throw new ToolArgsError(['prompt must not be blank'])
 
-      const selectedModel = args.model ?? liveConfig(config, 'model', DEFAULT_MODEL)
-      if (!SUPPORTED_MODELS.includes(selectedModel)) {
-        throw new ToolArgsError([`model must be one of ${SUPPORTED_MODELS.join(', ')}`])
-      }
+      const selectedModel = DEFAULT_MODEL
+      const verify = args.verify ?? liveConfig(config, 'verify', true)
 
       const size = normalizeSize(args.size ?? liveConfig(config, 'size', '2048x2048'))
       const n = args.n ?? liveConfig(config, 'n', 1)
@@ -339,12 +451,26 @@ export function apply(ctx, config) {
         const bytes = await readImageBytes(item, exec.signal)
         const path = join(directory, `${stamp}-${stem}-${index + 1}-${randomUUID().slice(0, 8)}.${format}`)
         await writeFile(path, bytes)
-        images.push({
+        const image = {
           path,
           bytes: bytes.byteLength,
           markdown: `![SenseNova image](<${path}>)`,
           ...(typeof item.url === 'string' && item.url !== '' ? { url: item.url } : {}),
-        })
+        }
+        if (verify) {
+          const imageUrl = typeof item.url === 'string' && item.url !== ''
+            ? item.url
+            : `data:${OUTPUT_FORMATS[format]};base64,${bytes.toString('base64')}`
+          image.verification = await verifyImage({
+            baseURL,
+            apiKey,
+            prompt,
+            imageUrl,
+            signal: exec.signal,
+            timeoutMs: VISION_TIMEOUT_MS,
+          })
+        }
+        images.push(image)
       }
 
       return {
