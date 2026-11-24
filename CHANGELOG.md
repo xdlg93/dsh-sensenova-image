@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.2.1
 
 - Replace the size presets with 2K/4K options: 2048×2048 (1:1), 2720×1536 (16:9), 1536×2720 (9:16), 1664×2496 (2:3), 2496×1664 (3:2), and 4096×4096 (1:1); the default is now 2048×2048. Custom sizes remain available.
+- Declare compatibility with DSH `0.2.2-rc.5` and `0.2.3-alpha.2` via `^0.2.2-rc.5 || ^0.2.3-alpha.2`; the 0.1.0 and 0.2.0 releases use the same range.
 
 ## 0.2.0
 
