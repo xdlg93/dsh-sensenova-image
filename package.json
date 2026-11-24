@@ -25,7 +25,7 @@
     "CHANGELOG.md"
   ],
   "engines": {
-    "dsh": "^0.2.3-alpha.2"
+    "dsh": "^0.2.2-rc.5 || ^0.2.3-alpha.2"
   },
   "keywords": [
     "dsh",
