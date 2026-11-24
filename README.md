@@ -21,14 +21,14 @@ Supported models:
 2. Enable **Custom plugin indexes** under **Experimental plugins**.
 3. Open **Discover → Add index source** and enter the index URL:
    `https://xdlg93.github.io/dsh-sensenova-image/index.json`
-4. Search for `sensenova` and install version `0.2.1` (or `0.1.0` / `0.2.0` from the Versions list).
+4. Search for `sensenova` and install version `0.2.2` (or `0.1.0` / `0.2.0` / `0.2.1` from the Versions list).
 
 The API key is read from the `SENSENOVA_API_KEY` credential reference by default. You can also save a custom key on **Settings → SenseNova 文生图**: it is stored in the DSH credential store and takes precedence; clear it to fall back to `SENSENOVA_API_KEY`.
 
 ## Install manually from Git
 
 ```sh
-dsh plugin --profile web add 'git+https://github.com/xdlg93/dsh-sensenova-image.git#v0.2.1'
+dsh plugin --profile web add 'git+https://github.com/xdlg93/dsh-sensenova-image.git#v0.2.2'
 ```
 
 For a monorepo the plugin manager uses the package directory; this repository keeps the package at the root.
@@ -68,11 +68,12 @@ Saved values are volatile configuration: they apply to the next tool call withou
 
 ## Versions
 
+- `0.2.2` — optional custom SenseNova API key in the settings page.
 - `0.2.1` — 2K/4K size presets, default 2048×2048, custom sizes.
 - `0.2.0` — Fast model + settings page.
 - `0.1.0` — initial Lite-only tool.
 
-All three are preserved as Git tags (`v0.1.0`, `v0.2.0`, `v0.2.1`) and in the plugin market index. Each declares DSH compatibility `^0.2.2-rc.5 || ^0.2.3-alpha.2`.
+All four are preserved as Git tags (`v0.1.0`, `v0.2.0`, `v0.2.1`, `v0.2.2`) and in the plugin market index. Each declares DSH compatibility `^0.2.2-rc.5 || ^0.2.3-alpha.2`.
 
 ## Development
 

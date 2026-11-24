@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.2
 
 - Add an optional custom SenseNova API key to the settings page. A saved key takes precedence over the configured `SENSENOVA_API_KEY`; clearing it restores the default.
 
