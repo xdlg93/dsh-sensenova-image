@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+
+- Fix local directory (`link:`) installs: declare `@deepseek-ai/dsh-tools` and `@deepseek-ai/schemastery` in `peerDependencies`, so the profile resolver maps them for importers outside the profile. npm and Git installs are unaffected.
+
 ## 0.2.2
 
 - Add an optional custom SenseNova API key to the settings page. A saved key takes precedence over the configured `SENSENOVA_API_KEY`; clearing it restores the default.

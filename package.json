@@ -1,6 +1,6 @@
 {
   "name": "dsh-sensenova-image",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": false,
   "description": "SenseNova U1.5 Lite/Fast text-to-image tool and settings page for DeepSeek Harness",
   "license": "MIT",
@@ -26,6 +26,10 @@
   ],
   "engines": {
     "dsh": "^0.2.2-rc.5 || ^0.2.3-alpha.2"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": "^0.1.7-rc.1 || ^0.2.0-rc.1 || ^0.3.0-0",
+    "@deepseek-ai/schemastery": ">=3.18.4 <4"
   },
   "keywords": [
     "dsh",
