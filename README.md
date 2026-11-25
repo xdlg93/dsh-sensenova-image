@@ -12,7 +12,7 @@ Models:
 - Generate images from Chinese or English prompts through `/v1/images/generations` with `sensenova-u1.6-lite`.
 - Edit 1-5 reference images through `/v1/images/edits`; each reference may be a public URL or a Base64 data URL.
 - Download the result and save it in the session working directory; return an absolute path, byte size, temporary URL, and ready-to-use Markdown.
-- Check each image against the prompt with `sensenova-6.8-flash` and return `pass` / `warn` / `fail` plus issues; a failed check does not discard the image.
+- Check each image against the prompt with `sensenova-6.8-flash` and return `pass` / `warn` / `fail` plus issues; a failed check does not discard the image. If a payload/model returns HTTP 400, the check falls back to a Base64 data URL and then `sensenova-6.8-flash-lite`; an unsupported combination is skipped quietly.
 - Choose size/resolution (default `auto`), image count, watermark, prompt polish/expand, text-and-quality enhancement (`self_correction`), visual check, output format, and save directory on **Settings → SenseNova 文生图（U1.6 Lite）**, with a note for each option.
 - Explicit tool-call parameters override the saved defaults.
 - Works for the root agent and subagents / agent teams.
@@ -22,17 +22,17 @@ Models:
 1. Open **Plugins** in the DSH Web GUI.
 2. Enable **Custom plugin indexes** under **Experimental plugins**.
 3. Open **Discover → Add index source** and enter the index URL:
-   `https://cdn.jsdelivr.net/gh/xdlg93/dsh-sensenova-image@main/site/index.json`
+   `https://xdlg93.github.io/dsh-sensenova-image/index.json`
 
-   Mirrors: `https://raw.githubusercontent.com/xdlg93/dsh-sensenova-image/main/site/index.json` and `https://xdlg93.github.io/dsh-sensenova-image/index.json`. The CDN and raw mirrors can lag briefly; the GitHub Pages mirror can lag while its deployments are retried.
-4. Search for `sensenova` and install version `0.4.0` (or an older version from the Versions list).
+   Mirrors: `https://cdn.jsdelivr.net/gh/xdlg93/dsh-sensenova-image@main/docs/index.json` and `https://raw.githubusercontent.com/xdlg93/dsh-sensenova-image/main/docs/index.json`. The CDN and raw mirrors can lag briefly.
+4. Search for `sensenova` and install version `0.4.1` (or an older version from the Versions list).
 
 The API key is read from the `SENSENOVA_API_KEY` credential reference by default. You can also save a custom key on **Settings → SenseNova 文生图（U1.6 Lite）**: it is stored in the DSH credential store and takes precedence; clear it to fall back to `SENSENOVA_API_KEY`. The same key is used for `sensenova-u1.6-lite` and the `sensenova-6.8-flash` visual check.
 
 ## Install manually from Git
 
 ```sh
-dsh plugin --profile web add 'git+https://github.com/xdlg93/dsh-sensenova-image.git#v0.4.0'
+dsh plugin --profile web add 'git+https://github.com/xdlg93/dsh-sensenova-image.git#v0.4.1'
 ```
 
 For a monorepo the plugin manager uses the package directory; this repository keeps the package at the root.
@@ -74,7 +74,7 @@ Open **Settings → SenseNova 文生图（U1.6 Lite）**:
 | Watermark | On / Off | Off produces a clean original during the free public beta |
 | Prompt polish/expand (`prompt_extend`) | On / Off | The provider polishes/expands the prompt and falls back to the original prompt if expansion fails |
 | Text and quality enhancement (`self_correction`) | On / Off | Improves text accuracy and overall image quality |
-| Visual check | On / Off | Checks each image with `sensenova-6.8-flash`; a failed check does not discard the image |
+| Visual check | On / Off | Checks each image with `sensenova-6.8-flash`, falling back to Base64 and `sensenova-6.8-flash-lite`; an unsupported 400 is skipped quietly |
 | Output format | PNG / JPEG / WebP | PNG is lossless and larger; JPEG/WebP are smaller |
 | Save directory | Text | Relative to the session working directory; defaults to `generated-images` |
 
@@ -84,6 +84,7 @@ Defaults: `n` stays 1-4 even though the docs currently support only `n=1`; `wate
 
 ## Versions
 
+- `0.4.1` — fix the visual-check 400 with Base64/6.8-flash-lite fallback and quiet skip; serve the market index from `/docs`.
 - `0.4.0` — add `sensenova_edit_image` with 1-5 reference images; `size: auto`; `self_correction`; prompt polish/expand.
 - `0.3.0` — switch to `sensenova-u1.6-lite`; add `sensenova-6.8-flash` visual checks.
 - `0.2.3` — fix `link:` installs by declaring the Host peer dependencies.
@@ -92,7 +93,7 @@ Defaults: `n` stays 1-4 even though the docs currently support only `n=1`; `wate
 - `0.2.0` — Fast model + settings page.
 - `0.1.0` — initial Lite-only tool.
 
-All seven are preserved as Git tags (`v0.1.0` … `v0.4.0`) and in the plugin market index. Each declares DSH compatibility `^0.2.2-rc.5 || ^0.2.3-alpha.2`.
+All eight are preserved as Git tags (`v0.1.0` … `v0.4.1`) and in the plugin market index. Each declares DSH compatibility `^0.2.2-rc.5 || ^0.2.3-alpha.2`.
 
 ## Local directory (`link:`) installs
 

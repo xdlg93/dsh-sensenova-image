@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1
+
+- Fix the visual check returning HTTP 400: fall back from the temporary image URL to a Base64 data URL, then from `sensenova-6.8-flash` to `sensenova-6.8-flash-lite`. If every combination returns 400, skip the check quietly instead of printing an error line; non-400 failures remain visible.
+- Serve the plugin market index from `/docs` so GitHub Pages can deploy from the `main` branch; remove the GitHub Actions Pages workflow.
+
 ## 0.4.0
 
 - Add `sensenova_edit_image` with 1-5 reference images (public URL or Base64 data URL) through `/v1/images/edits`; the first image is the primary image.

@@ -215,7 +215,10 @@ function normalizeVerdict(value) {
  * The key and base URL are the same as the image call; a failure is reported
  * in the result instead of discarding the image.
  */
-async function verifyImage({ baseURL, apiKey, prompt, imageUrl, signal, timeoutMs }) {
+const VISION_MODELS = ['sensenova-6.8-flash', 'sensenova-6.8-flash-lite']
+
+/** Send one vision request and classify its answer for the fallback chain. */
+async function requestVision({ baseURL, apiKey, model, imageUrl, prompt, signal, timeoutMs }) {
   const instruction = [
     '你是严格的图像质检员。只输出 JSON，不要输出其他文字。',
     `用户要求：${prompt}`,
@@ -223,7 +226,7 @@ async function verifyImage({ baseURL, apiKey, prompt, imageUrl, signal, timeoutM
     '输出 JSON：{"verdict":"pass|warn|fail","summary":"一句话结论","issues":["问题1"]}。',
   ].join('\n')
   const body = {
-    model: VISION_MODEL,
+    model,
     messages: [{
       role: 'user',
       content: [
@@ -257,35 +260,70 @@ async function verifyImage({ baseURL, apiKey, prompt, imageUrl, signal, timeoutM
     }
     if (!response.ok) {
       const detail = payload?.error?.message ?? payload?.message ?? raw.slice(0, 300)
-      throw new Error(`HTTP ${response.status}: ${detail}`)
+      return { ok: false, model, status: response.status, detail }
     }
     const content = payload?.choices?.[0]?.message?.content
     const parsed = parseVerdict(content)
     if (parsed === undefined) {
-      return {
-        model: VISION_MODEL,
-        status: 'error',
-        summary: String(content ?? 'empty vision response').slice(0, 500),
-      }
+      return { ok: false, model, status: 200, detail: String(content ?? 'empty vision response').slice(0, 500) }
     }
     return {
-      model: VISION_MODEL,
-      status: normalizeVerdict(parsed.verdict),
-      summary: typeof parsed.summary === 'string' ? parsed.summary.slice(0, 500) : '',
-      issues: Array.isArray(parsed.issues)
-        ? parsed.issues.filter(issue => typeof issue === 'string').slice(0, 8)
-        : [],
+      ok: true,
+      value: {
+        model,
+        status: normalizeVerdict(parsed.verdict),
+        summary: typeof parsed.summary === 'string' ? parsed.summary.slice(0, 500) : '',
+        issues: Array.isArray(parsed.issues)
+          ? parsed.issues.filter(issue => typeof issue === 'string').slice(0, 8)
+          : [],
+      },
     }
   } catch (error) {
     return {
-      model: VISION_MODEL,
-      status: 'error',
-      summary: error instanceof Error ? error.message : String(error),
+      ok: false,
+      model,
+      status: 0,
+      detail: error instanceof Error ? error.message : String(error),
     }
   } finally {
     clearTimeout(timer)
     signal.removeEventListener('abort', forwardAbort)
   }
+}
+
+/**
+ * Ask the vision models to check one generated image. Try the primary model
+ * with the temporary URL, then a Base64 data URL, then the lighter model with
+ * both payloads. A 400 on every attempt is an unsupported payload/model, so the
+ * check is skipped quietly; other failures are reported as `error`.
+ */
+async function verifyImage({ baseURL, apiKey, prompt, imageUrl, imageBytes, mediaType, signal, timeoutMs }) {
+  const dataUrl = imageBytes === undefined
+    ? undefined
+    : `data:${mediaType};base64,${Buffer.from(imageBytes).toString('base64')}`
+  const attempts = []
+  for (const model of VISION_MODELS) {
+    if (typeof imageUrl === 'string' && imageUrl !== '') attempts.push({ model, url: imageUrl })
+    if (dataUrl !== undefined) attempts.push({ model, url: dataUrl })
+  }
+  let last
+  for (const attempt of attempts) {
+    last = await requestVision({
+      baseURL,
+      apiKey,
+      model: attempt.model,
+      imageUrl: attempt.url,
+      prompt,
+      signal,
+      timeoutMs,
+    })
+    if (last.ok) return last.value
+    if (last.status !== 400) break
+  }
+  if (last !== undefined && last.status !== 400) {
+    return { model: last.model, status: 'error', summary: last.detail }
+  }
+  return undefined
 }
 
 /** Download, save, and optionally visually verify every image in one API response. */
@@ -320,6 +358,8 @@ async function saveImages({ ctx, config, payload, prompt, format, verify, signal
         apiKey,
         prompt,
         imageUrl,
+        imageBytes: bytes,
+        mediaType: OUTPUT_FORMATS[format],
         signal,
         timeoutMs: VISION_TIMEOUT_MS,
       })

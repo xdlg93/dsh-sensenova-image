@@ -18,6 +18,8 @@ U1.6 Lite 是图片创作模型，服务端只提供 OpenAI 兼容的图像接�
 
 视觉核对使用的是另一个模型 `sensenova-6.8-flash`，它支持图片输入，走 `POST /v1/chat/completions`。核对请求把指令和图片放在同一条 user 消息里（该网关不接受带图片的 system 角色），并使用与图片生成相同的 API Key。
 
+核对会先尝试 `sensenova-6.8-flash` + 临时 URL；若返回 400，再尝试 Base64 Data URL；仍失败则换 `sensenova-6.8-flash-lite`。如果所有组合都返回 400（模型/载荷不支持），本次核对会安静跳过，不输出错误行；鉴权或网络等非 400 错误会显示 `error`。
+
 > 官方文档已把文生图模型更新为 `sensenova-u1.6-lite` 与 `sensenova-u1-pro`。平台的 `GET /v1/models` 可能短暂滞后；以官方文档和实际调用为准。
 
 ## 设置页（推荐）
