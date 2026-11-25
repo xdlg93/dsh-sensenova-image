@@ -33,7 +33,10 @@ U1.6 Lite 是图片创作模型，服务端只提供 OpenAI 兼容的图像接�
 - 读取当前安装版本（`pluginManager.listBundles`）；
 - 拉取市场索引（Pages 主地址，jsDelivr 回退）；
 - 有新版本时显示 **更新到 x.y.z**；
-- 点击后调用 `pluginManager.updateBundle`，用索引里的 Git commit 覆盖安装，**无需卸载**；
+- 点击后调用 `pluginManager.updateBundle`，用目标 Git commit 覆盖安装，**无需卸载**；
+- 更新期间显示检查/移除/安装/恢复步骤和安装日志尾部；
+- 失败时显示管理错误码、诊断信息、pnpm 输出和网络提示；
+- 目标 spec 按**已安装来源**构造，镜像/代理安装的副本也走同一来源；
 - 更新期间页面可能重载。
 
 限制：

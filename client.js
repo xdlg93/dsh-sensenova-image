@@ -28,6 +28,11 @@ window.__ModuleLoader__.load({
       updateDone: '更新完成。',
       updateRestart: '更新已安装，需要重启 DSH。',
       updateNoIndex: '无法读取市场索引。',
+      updateStepChecking: '检查更新',
+      updateStepRemoving: '移除旧版本',
+      updateStepInstalling: '安装新版本',
+      updateStepRestoring: '恢复旧版本',
+      updateNetworkHint: 'Git 主机不可达：请确认启动 DSH 的进程能访问 GitHub（代理需在启动 DSH 前设置），或改用可访问的安装源。',
       keyPreference: '优先使用自定义 Key',
       keyPreferenceHint: '关闭时优先使用默认 Key；当前 Key 触发限流或额度限制时，会自动尝试另一套 Key，成功后把优先 Key 切换过去。',
       keyPreferenceNoCustom: '未设置自定义 Key，当前只能使用默认 Key。',
@@ -105,6 +110,11 @@ window.__ModuleLoader__.load({
       updateDone: 'Update complete.',
       updateRestart: 'Update installed; restart DSH.',
       updateNoIndex: 'Could not read the market index.',
+      updateStepChecking: 'Checking',
+      updateStepRemoving: 'Removing the old version',
+      updateStepInstalling: 'Installing the new version',
+      updateStepRestoring: 'Restoring the old version',
+      updateNetworkHint: 'The Git host is unreachable: make sure the process running DSH can reach GitHub (set the proxy before starting DSH), or use a reachable install source.',
       keyPreference: 'Prefer the custom key',
       keyPreferenceHint: 'When off, the default key is preferred. If the current key is rate-limited or out of quota, the other configured key is tried automatically and becomes the preferred key after it succeeds.',
       keyPreferenceNoCustom: 'No custom key is saved; only the default key is available.',
@@ -273,7 +283,32 @@ window.__ModuleLoader__.load({
       return `git+${url}.git#${source.commit}${typeof source.path === 'string' && source.path !== '' ? `&path:/${source.path}` : ''}`
     }
 
-    function Section({ form, t, credentials, pluginManager }) {
+    function targetSpecFromInstalled(source, commit) {
+      if (typeof source !== 'string' || typeof commit !== 'string') return undefined
+      if (!/^(?:git\+)?https?:\/\//u.test(source)) return undefined
+      const hash = source.indexOf('#')
+      if (hash === -1) return undefined
+      const base = source.slice(0, hash).replace(/^git\+/u, '')
+      const path = source.slice(hash + 1).split('&').find(part => part.startsWith('path:'))
+      return `git+${base}#${commit}${path === undefined ? '' : `&${path}`}`
+    }
+
+    function describeUpdateFailure(result) {
+      if (result === undefined || result === null) return 'failed'
+      const lines = []
+      if (result.stage !== undefined) lines.push(`stage: ${result.stage}`)
+      if (result.failedAt !== undefined) lines.push(`failedAt: ${result.failedAt}`)
+      if (result.error?.code !== undefined) lines.push(`code: ${result.error.code}`)
+      if (result.error?.diagnostic !== undefined) lines.push(result.error.diagnostic)
+      if (result.packageResult?.output) lines.push(result.packageResult.output.trim().slice(-2000))
+      if (result.restore !== undefined) {
+        lines.push(`restore: ${result.restore.application}`)
+        if (result.restore.error?.diagnostic) lines.push(result.restore.error.diagnostic)
+      }
+      return lines.filter(Boolean).join('\n') || 'failed'
+    }
+
+    function Section({ form, t, credentials, pluginManager, remote }) {
 
       const [snapshot, setSnapshot] = React.useState(() => form.getSnapshot())
       const [draft, setDraft] = React.useState(null)
@@ -284,7 +319,8 @@ window.__ModuleLoader__.load({
       const [keyInfo, setKeyInfo] = React.useState({ configured: false, writable: true })
       const [keyStatus, setKeyStatus] = React.useState('idle')
       const [keyError, setKeyError] = React.useState('')
-      const [update, setUpdate] = React.useState({ phase: 'idle', current: undefined, latest: undefined, source: undefined, message: '' })
+      const [update, setUpdate] = React.useState({ phase: 'idle', current: undefined, latest: undefined, source: undefined, installedSource: undefined, message: '', steps: [], logs: [] })
+      const updateRequestId = React.useRef(undefined)
 
       React.useEffect(() => form.subscribe(() => setSnapshot(form.getSnapshot())), [form])
 
@@ -303,6 +339,30 @@ window.__ModuleLoader__.load({
         void load()
         return () => { active = false }
       }, [credentials])
+
+      React.useEffect(() => {
+        if (remote?.$on === undefined) return
+        let offUpdate
+        let offLog
+        try {
+          offUpdate = remote.$on('plugin-manager/update-state', progress => {
+            if (progress.requestId !== updateRequestId.current) return
+            setUpdate(previous => previous.steps.includes(progress.step)
+              ? previous
+              : { ...previous, steps: [...previous.steps, progress.step] })
+          })
+          offLog = remote.$on('plugin-manager/install-log', chunk => {
+            if (chunk.requestId !== updateRequestId.current) return
+            setUpdate(previous => ({ ...previous, logs: [...previous.logs, chunk.text].slice(-40) }))
+          })
+        } catch (_failure) {
+          return
+        }
+        return () => {
+          if (typeof offUpdate === 'function') offUpdate()
+          if (typeof offLog === 'function') offLog()
+        }
+      }, [remote])
 
       const value = snapshot.value ?? {}
       const current = draft ?? value
@@ -342,7 +402,10 @@ window.__ModuleLoader__.load({
             current: currentVersion,
             latest: latest?.version,
             source: latest?.source,
+            installedSource: currentBundle?.source,
             message,
+            steps: [],
+            logs: [],
           })
         } catch (failure) {
           setUpdate({
@@ -350,29 +413,56 @@ window.__ModuleLoader__.load({
             current: undefined,
             latest: undefined,
             source: undefined,
+            installedSource: undefined,
             message: `${t('updateFailed')}${failure instanceof Error ? failure.message : String(failure)}`,
+            steps: [],
+            logs: [],
           })
+        }
+      }
+
+      const readInstalledVersion = async () => {
+        try {
+          const bundles = await pluginManager.listBundles()
+          return bundles.ok ? bundles.value.find(bundle => bundle.name === PLUGIN_NAME)?.version : undefined
+        } catch (_failure) {
+          return undefined
         }
       }
 
       const runUpdate = async () => {
         if (pluginManager === undefined || update.phase !== 'ready' || update.latest === undefined) return
-        const spec = sourceSpec(update.source)
+        const spec = targetSpecFromInstalled(update.installedSource, update.source?.commit) ?? sourceSpec(update.source)
         if (spec === undefined) {
           setUpdate(previous => ({ ...previous, phase: 'error', message: t('updateNotGit') }))
           return
         }
-        setUpdate(previous => ({ ...previous, phase: 'running', message: '' }))
+        setUpdate(previous => ({ ...previous, phase: 'running', message: '', steps: [], logs: [] }))
         try {
           const requestId = globalThis.crypto?.randomUUID?.() ?? `sensenova-update-${Date.now()}`
+          updateRequestId.current = requestId
           const answer = await pluginManager.updateBundle(PLUGIN_NAME, update.latest, { spec, requestId })
           if (!answer.ok) {
-            setUpdate(previous => ({ ...previous, phase: 'error', message: `${t('updateFailed')}${answer.error.message}` }))
+            await new Promise(resolve => setTimeout(resolve, 500))
+            const installed = await readInstalledVersion()
+            if (installed === update.latest) {
+              setUpdate(previous => ({ ...previous, phase: 'done', message: t('updateDone') }))
+            } else {
+              setUpdate(previous => ({ ...previous, phase: 'error', message: `${t('updateFailed')}${answer.error.message}` }))
+            }
             return
           }
-          const application = answer.value?.result?.application
-          if (application === 'failed') {
-            setUpdate(previous => ({ ...previous, phase: 'error', message: `${t('updateFailed')}${answer.value?.result?.error?.message ?? 'failed'}` }))
+          const result = answer.value?.result
+          const application = result?.application
+          if (application === 'failed' || application === 'cancelled') {
+            await new Promise(resolve => setTimeout(resolve, 500))
+            const installed = await readInstalledVersion()
+            if (installed === update.latest) {
+              setUpdate(previous => ({ ...previous, phase: 'done', message: t('updateDone') }))
+            } else {
+              const hint = result?.failedAt === 'spec-host' ? `\n${t('updateNetworkHint')}` : ''
+              setUpdate(previous => ({ ...previous, phase: 'error', message: `${t('updateFailed')}\n${describeUpdateFailure(result)}${hint}` }))
+            }
             return
           }
           setUpdate(previous => ({
@@ -381,7 +471,13 @@ window.__ModuleLoader__.load({
             message: application === 'restart-required' ? t('updateRestart') : t('updateDone'),
           }))
         } catch (failure) {
-          setUpdate(previous => ({ ...previous, phase: 'error', message: `${t('updateFailed')}${failure instanceof Error ? failure.message : String(failure)}` }))
+          await new Promise(resolve => setTimeout(resolve, 500))
+          const installed = await readInstalledVersion()
+          if (installed === update.latest) {
+            setUpdate(previous => ({ ...previous, phase: 'done', message: t('updateDone') }))
+          } else {
+            setUpdate(previous => ({ ...previous, phase: 'error', message: `${t('updateFailed')}${failure instanceof Error ? failure.message : String(failure)}` }))
+          }
         }
       }
 
@@ -496,6 +592,13 @@ window.__ModuleLoader__.load({
       const keyWritable = keyInfo.writable !== false
       const keyBusy = keyStatus === 'saving'
 
+      const updateStepLabels = {
+        checking: t('updateStepChecking'),
+        removing: t('updateStepRemoving'),
+        installing: t('updateStepInstalling'),
+        restoring: t('updateStepRestoring'),
+      }
+
       const row = (label, hint, control) => h('div', { className: 'sn-row' },
         h('div', { className: 'sn-row-text' },
           h('div', { className: 'sn-label' }, label),
@@ -518,9 +621,11 @@ window.__ModuleLoader__.load({
             ].filter(Boolean).join(' · ')),
             update.phase === 'checking' ? h('div', { className: 'sn-mini-hint' }, t('updateChecking')) : null,
             update.phase === 'running' ? h('div', { className: 'sn-mini-hint' }, t('updateRunning')) : null,
+            (update.phase === 'running' || update.phase === 'error') && update.steps.length > 0 ? h('div', { className: 'sn-mini-hint' }, update.steps.map(step => updateStepLabels[step] ?? step).join(' → ')) : null,
             update.phase === 'idle' && update.message !== '' ? h('div', { className: 'sn-mini-hint' }, update.message) : null,
             update.phase === 'done' ? h('div', { className: 'sn-mini-hint' }, update.message) : null,
-            update.phase === 'error' ? h('div', { className: 'sn-mini-hint sn-error', role: 'alert' }, update.message) : null,
+            update.phase === 'error' ? h('div', { className: 'sn-mini-hint sn-error', role: 'alert', style: { whiteSpace: 'pre-wrap', maxHeight: '220px', overflow: 'auto', fontFamily: 'monospace', fontSize: '11px' } }, update.message) : null,
+            (update.phase === 'running' || update.phase === 'error') && update.logs.length > 0 ? h('pre', { className: 'sn-mini-hint', style: { whiteSpace: 'pre-wrap', maxHeight: '180px', overflow: 'auto', fontFamily: 'monospace', fontSize: '11px', margin: 0 } }, update.logs.join('')) : null,
             h('div', { className: 'sn-key-actions' },
               update.phase === 'ready' ? h('button', {
                 type: 'button',
@@ -686,7 +791,7 @@ window.__ModuleLoader__.load({
           id: 'sensenova-image',
           order: 30,
           label: () => t('nav'),
-          inject: () => ({ form, t, credentials: ctx.remote.credentials, pluginManager: ctx.remote.pluginManager }),
+          inject: () => ({ form, t, credentials: ctx.remote.credentials, pluginManager: ctx.remote.pluginManager, remote: ctx.remote }),
         }, Section))
       },
     }

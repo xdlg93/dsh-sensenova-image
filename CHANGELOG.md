@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.3
+
+- Show update progress steps and the install-log tail in the plugin settings row.
+- Surface the management error code, diagnostic, pnpm output and a network hint when an update fails.
+- Build the update target spec from the installed Git origin, and re-check the installed version after a failed or lost response.
+
 ## 0.5.2
 
 - Add a **Prefer the custom key** toggle; the selected key is tried first, and rate/quota failures automatically try the other configured key, which becomes the preferred key after it serves the request.
