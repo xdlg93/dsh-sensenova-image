@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.2
+
+- Add a **Prefer the custom key** toggle; the selected key is tried first, and rate/quota failures automatically try the other configured key, which becomes the preferred key after it serves the request.
+- Reduce the per-attempt visual-check timeout to 60 seconds and raise the tool timeout to 8 minutes so the fallback chain can finish.
+
 ## 0.5.1
 
 - Add API key failover: when a configured key is rate-limited or out of quota, image generation and visual checks retry with the other configured key. Duplicate key values collapse to one entry.

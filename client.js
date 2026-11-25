@@ -28,6 +28,9 @@ window.__ModuleLoader__.load({
       updateDone: '更新完成。',
       updateRestart: '更新已安装，需要重启 DSH。',
       updateNoIndex: '无法读取市场索引。',
+      keyPreference: '优先使用自定义 Key',
+      keyPreferenceHint: '关闭时优先使用默认 Key；当前 Key 触发限流或额度限制时，会自动尝试另一套 Key，成功后把优先 Key 切换过去。',
+      keyPreferenceNoCustom: '未设置自定义 Key，当前只能使用默认 Key。',
       apiKey: 'API Key',
       apiKeyHint: '默认使用当前配置的 SENSENOVA_API_KEY；填写并保存后优先使用你的 Key。Key 保存在 DSH 凭据库，不会写入配置文件。',
       apiKeyPlaceholder: 'sk-...',
@@ -102,6 +105,9 @@ window.__ModuleLoader__.load({
       updateDone: 'Update complete.',
       updateRestart: 'Update installed; restart DSH.',
       updateNoIndex: 'Could not read the market index.',
+      keyPreference: 'Prefer the custom key',
+      keyPreferenceHint: 'When off, the default key is preferred. If the current key is rate-limited or out of quota, the other configured key is tried automatically and becomes the preferred key after it succeeds.',
+      keyPreferenceNoCustom: 'No custom key is saved; only the default key is available.',
       apiKey: 'API key',
       apiKeyHint: 'Uses the configured SENSENOVA_API_KEY by default. A key saved here takes precedence. The key is stored in the DSH credential store, never in the plugin configuration.',
       apiKeyPlaceholder: 'sk-...',
@@ -405,7 +411,7 @@ window.__ModuleLoader__.load({
         }
         next.outputDir = String(next.outputDir ?? '').trim() || 'generated-images'
         const ops = []
-        for (const key of ['size', 'n', 'watermark', 'prompt_extend', 'self_correction', 'verify', 'output_format', 'outputDir']) {
+        for (const key of ['keyPreference', 'size', 'n', 'watermark', 'prompt_extend', 'self_correction', 'verify', 'output_format', 'outputDir']) {
           if (next[key] !== value[key]) ops.push({ op: 'set', path: [key], value: next[key] })
         }
         if (ops.length === 0) {
@@ -486,6 +492,7 @@ window.__ModuleLoader__.load({
       const showCustom = customMode || !PRESET_VALUES.has(size)
       const sizeSelectValue = showCustom ? 'custom' : size
       const keyConfigured = keyInfo.configured === true
+      const keyPreference = current.keyPreference === 'default' ? 'default' : 'custom'
       const keyWritable = keyInfo.writable !== false
       const keyBusy = keyStatus === 'saving'
 
@@ -563,6 +570,15 @@ window.__ModuleLoader__.load({
             keyStatus === 'error' ? h('div', { className: 'sn-mini-hint sn-error', role: 'alert' }, keyError) : null,
             keyConfigured && keyInfo.masked ? h('div', { className: 'sn-mini-hint' }, keyInfo.masked) : null,
             !keyWritable ? h('div', { className: 'sn-mini-hint sn-error' }, t('apiKeyReadOnly')) : null,
+          )),
+          row(t('keyPreference'), t('keyPreferenceHint'), h('div', { className: 'sn-stack' },
+            h(Toggle, {
+              checked: keyPreference === 'custom',
+              disabled: !writable || busy || !keyConfigured,
+              label: t('keyPreference'),
+              onChange: next => set('keyPreference', next ? 'custom' : 'default'),
+            }),
+            !keyConfigured ? h('div', { className: 'sn-mini-hint' }, t('keyPreferenceNoCustom')) : null,
           )),
           row(t('verification'), t('verificationHint'), h(Toggle, {
             checked: verify,

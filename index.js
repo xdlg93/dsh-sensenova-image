@@ -25,8 +25,8 @@ const DEFAULT_API_KEY_ENV = 'SENSENOVA_API_KEY'
 const USER_API_KEY_ENV = 'SENSENOVA_IMAGE_API_KEY'
 const DEFAULT_OUTPUT_DIR = 'generated-images'
 const DEFAULT_REQUEST_TIMEOUT_MS = 300_000
-const TOOL_TIMEOUT_MS = 360_000
-const VISION_TIMEOUT_MS = 120_000
+const TOOL_TIMEOUT_MS = 480_000
+const VISION_TIMEOUT_MS = 60_000
 const MAX_IMAGES = 4
 const MAX_REFERENCE_IMAGES = 5
 
@@ -48,6 +48,7 @@ export const Config = z.object({
   apiKeyEnv: z.string().default(DEFAULT_API_KEY_ENV),
   baseURL: z.string().default(DEFAULT_BASE_URL),
   model: z.string().default(DEFAULT_MODEL).volatile(),
+  keyPreference: z.string().default('custom').volatile(),
   size: z.string().default('auto').volatile(),
   n: z.number().step(1).min(1).max(MAX_IMAGES).default(1).volatile(),
   watermark: z.boolean().default(false).volatile(),
@@ -129,16 +130,16 @@ function isKeyFailoverError(status, payload, raw) {
 }
 
 /**
- * Resolve the configured keys in preference order: the key saved on the
- * settings page first, then the configured `apiKeyEnv` fallback. Duplicate
+ * Resolve the configured keys in the selected preference order. Duplicate
  * values collapse to one entry; the caller may use the second entry when the
  * first is rate-limited or out of quota.
  */
-async function resolveApiKeys(ctx, ref) {
+async function resolveApiKeys(ctx, ref, preference = 'custom') {
   const custom = await resolveKeyRef(ctx, USER_API_KEY_ENV)
   const fallback = await resolveKeyRef(ctx, ref)
+  const ordered = preference === 'default' ? [fallback, custom] : [custom, fallback]
   const keys = []
-  for (const key of [custom, fallback]) {
+  for (const key of ordered) {
     if (typeof key === 'string' && key !== '' && !keys.includes(key)) keys.push(key)
   }
   if (keys.length === 0) {
@@ -148,6 +149,19 @@ async function resolveApiKeys(ctx, ref) {
     )
   }
   return keys
+}
+
+/** Best-effort persistence of the key that actually served the image request. */
+async function persistKeyPreference(ctx, successKey, customKey, fallbackKey) {
+  const preference = successKey === customKey ? 'custom' : successKey === fallbackKey ? 'default' : undefined
+  if (preference === undefined) return
+  const settings = ctx.get('settings')
+  if (settings === undefined) return
+  try {
+    await settings.mutate('sensenova-image', [{ op: 'set', path: ['keyPreference'], value: preference }])
+  } catch (_failure) {
+    // The request already succeeded; a failed preference write must not fail it.
+  }
 }
 
 /** One generation/editing request with one key. */
@@ -569,7 +583,8 @@ export function apply(ctx, config) {
         throw new ToolArgsError(['output_format must be png, jpeg, or webp'])
       }
 
-      const apiKeys = await resolveApiKeys(ctx, apiKeyEnv)
+      const keyPreference = liveConfig(config, 'keyPreference', 'custom')
+      const apiKeys = await resolveApiKeys(ctx, apiKeyEnv, keyPreference)
       const body = {
         model: selectedModel,
         prompt,
@@ -592,6 +607,11 @@ export function apply(ctx, config) {
       })
       const payload = generated.payload
       const imageKey = generated.apiKey
+      if (imageKey !== apiKeys[0]) {
+        const customKey = await resolveKeyRef(ctx, USER_API_KEY_ENV)
+        const fallbackKey = await resolveKeyRef(ctx, apiKeyEnv)
+        await persistKeyPreference(ctx, imageKey, customKey, fallbackKey)
+      }
 
       const images = await saveImages({
         ctx,
@@ -694,7 +714,8 @@ export function apply(ctx, config) {
         throw new ToolArgsError(['output_format must be png, jpeg, or webp'])
       }
 
-      const apiKeys = await resolveApiKeys(ctx, apiKeyEnv)
+      const keyPreference = liveConfig(config, 'keyPreference', 'custom')
+      const apiKeys = await resolveApiKeys(ctx, apiKeyEnv, keyPreference)
       const body = {
         model: DEFAULT_MODEL,
         images: references.map(imageUrl => ({ image_url: imageUrl })),
@@ -718,6 +739,11 @@ export function apply(ctx, config) {
       })
       const payload = generated.payload
       const imageKey = generated.apiKey
+      if (imageKey !== apiKeys[0]) {
+        const customKey = await resolveKeyRef(ctx, USER_API_KEY_ENV)
+        const fallbackKey = await resolveKeyRef(ctx, apiKeyEnv)
+        await persistKeyPreference(ctx, imageKey, customKey, fallbackKey)
+      }
 
       const images = await saveImages({
         ctx,

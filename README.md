@@ -19,7 +19,7 @@ Models:
 
 ## API key failover
 
-The plugin keeps the configured `SENSENOVA_API_KEY` and the optional key saved in Settings. If a request is rate-limited or out of quota, image generation and visual checks retry with the other configured key. Duplicate key values collapse to one entry; both keys stay in the DSH credential store.
+The plugin keeps the configured `SENSENOVA_API_KEY` and the optional key saved in Settings. The settings page has a **Prefer the custom key** toggle: the selected key is tried first, and if it is rate-limited or out of quota, the other configured key is tried; when that key serves the request, it becomes the preferred key. Duplicate key values collapse to one entry; both keys stay in the DSH credential store.
 
 ## In-plugin update
 
@@ -47,14 +47,14 @@ This is a prompt-level default, not a hard tool lock. An explicit user instructi
    `https://xdlg93.github.io/dsh-sensenova-image/index.json`
 
    Mirrors: `https://cdn.jsdelivr.net/gh/xdlg93/dsh-sensenova-image@main/docs/index.json` and `https://raw.githubusercontent.com/xdlg93/dsh-sensenova-image/main/docs/index.json`. The CDN and raw mirrors can lag briefly.
-4. Search for `sensenova` and install version `0.5.1` (or an older version from the Versions list).
+4. Search for `sensenova` and install version `0.5.2` (or an older version from the Versions list).
 
 The API key is read from the `SENSENOVA_API_KEY` credential reference by default. You can also save a custom key on **Settings → SenseNova 文生图（U1.6 Lite）**: it is stored in the DSH credential store and takes precedence; clear it to fall back to `SENSENOVA_API_KEY`. The same key is used for `sensenova-u1.6-lite` and the `sensenova-6.8-flash` visual check.
 
 ## Install manually from Git
 
 ```sh
-dsh plugin --profile web add 'git+https://github.com/xdlg93/dsh-sensenova-image.git#v0.5.1'
+dsh plugin --profile web add 'git+https://github.com/xdlg93/dsh-sensenova-image.git#v0.5.2'
 ```
 
 For a monorepo the plugin manager uses the package directory; this repository keeps the package at the root.
@@ -106,6 +106,7 @@ Defaults: `n` stays 1-4 even though the docs currently support only `n=1`; `wate
 
 ## Versions
 
+- `0.5.2` — add a preferred-key toggle with automatic failover and persistence.
 - `0.5.1` — add API key failover for rate/quota limits.
 - `0.5.0` — add in-plugin one-click updates and a global image-generation priority policy.
 - `0.4.1` — fix the visual-check 400 with Base64/6.8-flash-lite fallback and quiet skip; serve the market index from `/docs`.
@@ -117,7 +118,7 @@ Defaults: `n` stays 1-4 even though the docs currently support only `n=1`; `wate
 - `0.2.0` — Fast model + settings page.
 - `0.1.0` — initial Lite-only tool.
 
-All ten are preserved as Git tags (`v0.1.0` … `v0.5.1`) and in the plugin market index. Each declares DSH compatibility `^0.2.2-rc.5 || ^0.2.3-alpha.2`.
+All eleven are preserved as Git tags (`v0.1.0` … `v0.5.2`) and in the plugin market index. Each declares DSH compatibility `^0.2.2-rc.5 || ^0.2.3-alpha.2`.
 
 ## Local directory (`link:`) installs
 

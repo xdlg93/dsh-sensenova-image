@@ -10,6 +10,7 @@
         apiKeyEnv: SENSENOVA_API_KEY
         baseURL: https://token.sensenova.cn/v1
         model: sensenova-u1.6-lite
+        keyPreference: custom
         size: auto
         n: 1
         watermark: false
