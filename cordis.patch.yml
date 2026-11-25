@@ -1,4 +1,4 @@
-# SenseNova U1.6 Lite image tool + settings page, with 6.8 Flash visual checks.
+# SenseNova U1.6 Lite image generation/editing + settings page, with 6.8 Flash visual checks.
 # The models are image-generation models, not chat models: they are exposed to
 # every agent (including subagents) through the sensenova_generate_image tool.
 # The settings page writes the volatile fields below; tool calls may override
@@ -10,10 +10,11 @@
         apiKeyEnv: SENSENOVA_API_KEY
         baseURL: https://token.sensenova.cn/v1
         model: sensenova-u1.6-lite
-        size: 2048x2048
+        size: auto
         n: 1
         watermark: false
         prompt_extend: true
+        self_correction: true
         verify: true
         output_format: png
         outputDir: generated-images

@@ -12,8 +12,8 @@
         "zh": "SenseNova 文生图"
       },
       "description": {
-        "en": "Generate images with SenseNova U1.6 Lite and check them with sensenova-6.8-flash; the settings page controls size, watermark, and other defaults.",
-        "zh": "使用 SenseNova U1.6 Lite 生成图片，并用 sensenova-6.8-flash 做视觉核对；设置页可选择尺寸、水印等默认参数。"
+        "en": "Generate and edit images with SenseNova U1.6 Lite, check them with sensenova-6.8-flash, and control auto size, watermark, self-correction, and other defaults.",
+        "zh": "使用 SenseNova U1.6 Lite 生成和编辑图片，并用 sensenova-6.8-flash 做视觉核对；设置页可选择 auto 尺寸、水印、文字与画质增强等默认参数。"
       },
       "icon": "icons/sensenova-image.svg",
       "author": "xdlg93",

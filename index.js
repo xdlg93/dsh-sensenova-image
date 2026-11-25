@@ -28,6 +28,7 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 300_000
 const TOOL_TIMEOUT_MS = 360_000
 const VISION_TIMEOUT_MS = 120_000
 const MAX_IMAGES = 4
+const MAX_REFERENCE_IMAGES = 5
 
 const OUTPUT_FORMATS = {
   png: 'image/png',
@@ -47,10 +48,11 @@ export const Config = z.object({
   apiKeyEnv: z.string().default(DEFAULT_API_KEY_ENV),
   baseURL: z.string().default(DEFAULT_BASE_URL),
   model: z.string().default(DEFAULT_MODEL).volatile(),
-  size: z.string().default('2048x2048').volatile(),
+  size: z.string().default('auto').volatile(),
   n: z.number().step(1).min(1).max(MAX_IMAGES).default(1).volatile(),
   watermark: z.boolean().default(false).volatile(),
   prompt_extend: z.boolean().default(true).volatile(),
+  self_correction: z.boolean().default(true).volatile(),
   verify: z.boolean().default(true).volatile(),
   output_format: z.string().default('png').volatile(),
   outputDir: z.string().default(DEFAULT_OUTPUT_DIR).volatile(),
@@ -88,7 +90,8 @@ function safeStem(value, fallback) {
 
 /** Validate the API's size syntax before spending a request. */
 function normalizeSize(raw) {
-  const size = typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : '2048x2048'
+  const size = typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : 'auto'
+  if (size.toLowerCase() === 'auto') return 'auto'
   if (/^(2k|4k)$/i.test(size)) return size.toUpperCase()
   const match = /^(\d{3,4})x(\d{3,4})$/i.exec(size)
   if (match === null) {
@@ -135,13 +138,13 @@ async function resolveApiKey(ctx, ref) {
 }
 
 /** POST one generation request, combining the tool's cancellation with a request timeout. */
-async function requestGeneration({ baseURL, apiKey, body, signal, timeoutMs }) {
+async function requestImages({ baseURL, apiKey, path, body, signal, timeoutMs }) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(new Error(`request timed out after ${timeoutMs} ms`)), timeoutMs)
   const forwardAbort = () => controller.abort(signal.reason)
   signal.addEventListener('abort', forwardAbort, { once: true })
   try {
-    const response = await fetch(`${baseURL.replace(/\/+$/u, '')}/images/generations`, {
+    const response = await fetch(`${baseURL.replace(/\/+$/u, '')}${path}`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -159,7 +162,7 @@ async function requestGeneration({ baseURL, apiKey, body, signal, timeoutMs }) {
     }
     if (!response.ok) {
       const detail = payload?.error?.message ?? payload?.message ?? raw.slice(0, 500)
-      throw new Error(`sensenova_generate_image: HTTP ${response.status} from /images/generations: ${detail}`)
+      throw new Error(`sensenova_generate_image: HTTP ${response.status} from ${path}: ${detail}`)
     }
     if (payload === undefined || !Array.isArray(payload.data) || payload.data.length === 0) {
       throw new Error('sensenova_generate_image: the API returned no image data')
@@ -285,6 +288,98 @@ async function verifyImage({ baseURL, apiKey, prompt, imageUrl, signal, timeoutM
   }
 }
 
+/** Download, save, and optionally visually verify every image in one API response. */
+async function saveImages({ ctx, config, payload, prompt, format, verify, signal, agent, filename, baseURL, apiKey }) {
+  const session = agent?.session
+  const cwd = session !== undefined
+    ? ctx.workingDirectory.get(session)
+    : ctx.workingDirectory.defaultDirectory
+  const outputDirectory = liveConfig(config, 'outputDir', DEFAULT_OUTPUT_DIR) || DEFAULT_OUTPUT_DIR
+  const directory = isAbsolute(outputDirectory) ? outputDirectory : resolve(cwd, outputDirectory)
+  await mkdir(directory, { recursive: true })
+
+  const stem = safeStem(filename ?? prompt, 'image')
+  const stamp = new Date().toISOString().replace(/[:.]/gu, '-')
+  const images = []
+  for (const [index, item] of payload.data.entries()) {
+    const bytes = await readImageBytes(item, signal)
+    const path = join(directory, `${stamp}-${stem}-${index + 1}-${randomUUID().slice(0, 8)}.${format}`)
+    await writeFile(path, bytes)
+    const image = {
+      path,
+      bytes: bytes.byteLength,
+      markdown: `![SenseNova image](<${path}>)`,
+      ...(typeof item.url === 'string' && item.url !== '' ? { url: item.url } : {}),
+    }
+    if (verify) {
+      const imageUrl = typeof item.url === 'string' && item.url !== ''
+        ? item.url
+        : `data:${OUTPUT_FORMATS[format]};base64,${bytes.toString('base64')}`
+      image.verification = await verifyImage({
+        baseURL,
+        apiKey,
+        prompt,
+        imageUrl,
+        signal,
+        timeoutMs: VISION_TIMEOUT_MS,
+      })
+    }
+    images.push(image)
+  }
+  return images
+}
+
+const IMAGE_OUTPUT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    model: { type: 'string', required: true },
+    prompt: { type: 'string', required: true },
+    size: { type: 'string', required: true },
+    images: {
+      type: 'array',
+      required: true,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          path: { type: 'string', required: true },
+          bytes: { type: 'integer', required: true },
+          markdown: { type: 'string', required: true },
+          url: { type: 'string' },
+          verification: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              model: { type: 'string', required: true },
+              status: { type: 'string', required: true, enum: ['pass', 'warn', 'fail', 'error'] },
+              summary: { type: 'string' },
+              issues: { type: 'array', items: { type: 'string' } },
+            },
+          },
+        },
+      },
+    },
+  },
+}
+
+function renderImageResult(_args, value) {
+  const lines = [`Generated ${value.images.length} image(s) with ${value.model} at ${value.size}.`]
+  for (const image of value.images) {
+    lines.push(`- ${image.path} (${image.bytes} bytes)`)
+    lines.push(`  Markdown: ${image.markdown}`)
+    if (image.url !== undefined) lines.push(`  Temporary URL (24h): ${image.url}`)
+    if (image.verification !== undefined) {
+      lines.push(`  Visual check (${image.verification.model}): ${image.verification.status} — ${image.verification.summary ?? ''}`)
+      if (Array.isArray(image.verification.issues) && image.verification.issues.length > 0) {
+        lines.push(`  Issues: ${image.verification.issues.join('; ')}`)
+      }
+    }
+  }
+  lines.push('Include the Markdown line in your reply so the user can see the image.')
+  return [{ type: 'text', text: lines.join('\n') }]
+}
+
 export function apply(ctx, config) {
   const baseURL = textConfig(config, 'baseURL', DEFAULT_BASE_URL)
   const apiKeyEnv = textConfig(config, 'apiKeyEnv', DEFAULT_API_KEY_ENV)
@@ -305,8 +400,8 @@ export function apply(ctx, config) {
       + 'session working directory; the result contains each absolute path, byte size, temporary URL, ready-to-use '
       + 'Markdown, and the visual-check result. Put the returned Markdown in your reply so the user can see the '
       + 'image. Use this tool for any text-to-image request, such as illustrations, posters, product shots, or '
-      + 'infographics. Size, n, watermark, prompt_extend, verify, and output_format default to the values on the '
-      + 'plugin settings page; explicit parameters override them.',
+      + 'infographics. Size, n, watermark, prompt_extend, self_correction, verify, and output_format default to '
+      + 'the values on the plugin settings page; explicit parameters override them.',
     parameters: {
       prompt: {
         type: 'string',
@@ -315,7 +410,7 @@ export function apply(ctx, config) {
       },
       size: {
         type: 'string',
-        description: 'Output size: "2K", "4K", or WIDTHxHEIGHT. Width and height must be 512-4096, multiples of 32, and no more than 3:1 apart. Omit to use the settings page default.',
+        description: 'Output size: "auto" (default), "2K", "4K", or WIDTHxHEIGHT. Width and height must be 512-4096, multiples of 32, and no more than 3:1 apart. Omit to use the settings page default.',
       },
       n: {
         type: 'integer',
@@ -327,7 +422,11 @@ export function apply(ctx, config) {
       },
       prompt_extend: {
         type: 'boolean',
-        description: 'Let the provider expand and refine the prompt automatically. Omit to use the settings page default.',
+        description: 'Automatically polish/expand the prompt; the provider falls back to the original prompt if expansion fails. Omit to use the settings page default.',
+      },
+      self_correction: {
+        type: 'boolean',
+        description: 'Improve text accuracy and overall image quality (self_correction). Omit to use the settings page default.',
       },
       verify: {
         type: 'boolean',
@@ -344,57 +443,8 @@ export function apply(ctx, config) {
       },
     },
     output: {
-      schema: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          model: { type: 'string', required: true },
-          prompt: { type: 'string', required: true },
-          size: { type: 'string', required: true },
-          images: {
-            type: 'array',
-            required: true,
-            items: {
-              type: 'object',
-              additionalProperties: false,
-              properties: {
-                path: { type: 'string', required: true },
-                bytes: { type: 'integer', required: true },
-                markdown: { type: 'string', required: true },
-                url: { type: 'string' },
-                verification: {
-                  type: 'object',
-                  additionalProperties: false,
-                  properties: {
-                    model: { type: 'string', required: true },
-                    status: { type: 'string', required: true, enum: ['pass', 'warn', 'fail', 'error'] },
-                    summary: { type: 'string' },
-                    issues: { type: 'array', items: { type: 'string' } },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-      render(_args, value) {
-        const lines = [
-          `Generated ${value.images.length} image(s) with ${value.model} at ${value.size}.`,
-        ]
-        for (const image of value.images) {
-          lines.push(`- ${image.path} (${image.bytes} bytes)`)
-          lines.push(`  Markdown: ${image.markdown}`)
-          if (image.url !== undefined) lines.push(`  Temporary URL (24h): ${image.url}`)
-          if (image.verification !== undefined) {
-            lines.push(`  Visual check (${image.verification.model}): ${image.verification.status} — ${image.verification.summary ?? ''}`)
-            if (Array.isArray(image.verification.issues) && image.verification.issues.length > 0) {
-              lines.push(`  Issues: ${image.verification.issues.join('; ')}`)
-            }
-          }
-        }
-        lines.push('Include the Markdown line in your reply so the user can see the image.')
-        return [{ type: 'text', text: lines.join('\n') }]
-      },
+      schema: IMAGE_OUTPUT_SCHEMA,
+      render: renderImageResult,
     },
     timeoutMs: TOOL_TIMEOUT_MS,
     async execute(args, exec) {
@@ -405,8 +455,7 @@ export function apply(ctx, config) {
 
       const selectedModel = DEFAULT_MODEL
       const verify = args.verify ?? liveConfig(config, 'verify', true)
-
-      const size = normalizeSize(args.size ?? liveConfig(config, 'size', '2048x2048'))
+      const size = normalizeSize(args.size ?? liveConfig(config, 'size', 'auto'))
       const n = args.n ?? liveConfig(config, 'n', 1)
       if (!Number.isInteger(n) || n < 1 || n > MAX_IMAGES) {
         throw new ToolArgsError([`n must be an integer from 1 to ${MAX_IMAGES}`])
@@ -426,52 +475,31 @@ export function apply(ctx, config) {
         response_format: 'url',
         watermark: args.watermark ?? liveConfig(config, 'watermark', false),
         prompt_extend: args.prompt_extend ?? liveConfig(config, 'prompt_extend', true),
+        self_correction: args.self_correction ?? liveConfig(config, 'self_correction', true),
       }
 
-      const payload = await requestGeneration({
+      const payload = await requestImages({
         baseURL,
         apiKey,
+        path: '/images/generations',
         body,
         signal: exec.signal,
         timeoutMs: requestTimeoutMs,
       })
 
-      const session = exec.agent?.session
-      const cwd = session !== undefined
-        ? ctx.workingDirectory.get(session)
-        : ctx.workingDirectory.defaultDirectory
-      const outputDirectory = liveConfig(config, 'outputDir', DEFAULT_OUTPUT_DIR) || DEFAULT_OUTPUT_DIR
-      const directory = isAbsolute(outputDirectory) ? outputDirectory : resolve(cwd, outputDirectory)
-      await mkdir(directory, { recursive: true })
-
-      const stem = safeStem(args.filename ?? prompt, 'image')
-      const stamp = new Date().toISOString().replace(/[:.]/gu, '-')
-      const images = []
-      for (const [index, item] of payload.data.entries()) {
-        const bytes = await readImageBytes(item, exec.signal)
-        const path = join(directory, `${stamp}-${stem}-${index + 1}-${randomUUID().slice(0, 8)}.${format}`)
-        await writeFile(path, bytes)
-        const image = {
-          path,
-          bytes: bytes.byteLength,
-          markdown: `![SenseNova image](<${path}>)`,
-          ...(typeof item.url === 'string' && item.url !== '' ? { url: item.url } : {}),
-        }
-        if (verify) {
-          const imageUrl = typeof item.url === 'string' && item.url !== ''
-            ? item.url
-            : `data:${OUTPUT_FORMATS[format]};base64,${bytes.toString('base64')}`
-          image.verification = await verifyImage({
-            baseURL,
-            apiKey,
-            prompt,
-            imageUrl,
-            signal: exec.signal,
-            timeoutMs: VISION_TIMEOUT_MS,
-          })
-        }
-        images.push(image)
-      }
+      const images = await saveImages({
+        ctx,
+        config,
+        payload,
+        prompt,
+        format,
+        verify,
+        signal: exec.signal,
+        agent: exec.agent,
+        filename: args.filename,
+        baseURL,
+        apiKey,
+      })
 
       return {
         model: selectedModel,
@@ -482,4 +510,126 @@ export function apply(ctx, config) {
     },
   }))
 
+
+
+  ctx.tools.register(defineTool({
+    name: 'sensenova_edit_image',
+    description:
+      'Edit or rewrite one or more reference images with SenseNova U1.6 Lite (sensenova-u1.6-lite). '
+      + 'Pass 1-5 reference images as public URLs or Base64 data URLs; the first is the primary image. '
+      + 'After saving the result, SenseNova 6.8 Flash (sensenova-6.8-flash) checks it against the edit prompt. '
+      + 'Use this tool for image-to-image editing, style transfer, background replacement, object changes, '
+      + 'or reference-guided generation. Size, watermark, prompt_extend, self_correction, verify, and '
+      + 'output_format default to the settings page.',
+    parameters: {
+      prompt: {
+        type: 'string',
+        required: true,
+        description: 'Editing instruction describing the expected final image.',
+      },
+      images: {
+        type: 'array',
+        required: true,
+        items: { type: 'string' },
+        description: `1-${MAX_REFERENCE_IMAGES} reference images. Each is a public HTTPS URL or a Base64 data URL (data:image/png;base64,...). The first image is the primary image.`,
+      },
+      size: {
+        type: 'string',
+        description: 'Output size: "auto" (default, follows the primary image), "2K", "4K", or WIDTHxHEIGHT. Width and height must be 512-4096, multiples of 32, and no more than 3:1 apart. Omit to use the settings page default.',
+      },
+      watermark: {
+        type: 'boolean',
+        description: 'Add the provider watermark. Omit to use the settings page default.',
+      },
+      prompt_extend: {
+        type: 'boolean',
+        description: 'Automatically polish/expand the edit prompt; the provider falls back to the original prompt if expansion fails. Omit to use the settings page default.',
+      },
+      self_correction: {
+        type: 'boolean',
+        description: 'Improve text accuracy and overall image quality (self_correction). Omit to use the settings page default.',
+      },
+      verify: {
+        type: 'boolean',
+        description: 'Check the edited image with sensenova-6.8-flash. Omit to use the settings page default.',
+      },
+      output_format: {
+        type: 'string',
+        enum: ['png', 'jpeg', 'webp'],
+        description: 'Saved image format. Omit to use the settings page default.',
+      },
+      filename: {
+        type: 'string',
+        description: 'Optional base name for the saved file; the extension and a uniqueness suffix are added automatically.',
+      },
+    },
+    output: {
+      schema: IMAGE_OUTPUT_SCHEMA,
+      render: renderImageResult,
+    },
+    timeoutMs: TOOL_TIMEOUT_MS,
+    async execute(args, exec) {
+      exec.signal.throwIfAborted()
+
+      const prompt = args.prompt.trim()
+      if (prompt === '') throw new ToolArgsError(['prompt must not be blank'])
+      const references = Array.isArray(args.images)
+        ? args.images.map(item => String(item).trim()).filter(item => item !== '')
+        : []
+      if (references.length < 1 || references.length > MAX_REFERENCE_IMAGES) {
+        throw new ToolArgsError([`images must contain 1-${MAX_REFERENCE_IMAGES} reference images`])
+      }
+
+      const verify = args.verify ?? liveConfig(config, 'verify', true)
+      const size = normalizeSize(args.size ?? liveConfig(config, 'size', 'auto'))
+      const format = args.output_format ?? liveConfig(config, 'output_format', 'png')
+      if (!Object.hasOwn(OUTPUT_FORMATS, format)) {
+        throw new ToolArgsError(['output_format must be png, jpeg, or webp'])
+      }
+
+      const apiKey = await resolveApiKey(ctx, apiKeyEnv)
+      const body = {
+        model: DEFAULT_MODEL,
+        images: references.map(imageUrl => ({ image_url: imageUrl })),
+        prompt,
+        n: 1,
+        size,
+        output_format: format,
+        response_format: 'url',
+        watermark: args.watermark ?? liveConfig(config, 'watermark', false),
+        prompt_extend: args.prompt_extend ?? liveConfig(config, 'prompt_extend', true),
+        self_correction: args.self_correction ?? liveConfig(config, 'self_correction', true),
+      }
+
+      const payload = await requestImages({
+        baseURL,
+        apiKey,
+        path: '/images/edits',
+        body,
+        signal: exec.signal,
+        timeoutMs: requestTimeoutMs,
+      })
+
+      const images = await saveImages({
+        ctx,
+        config,
+        payload,
+        prompt,
+        format,
+        verify,
+        signal: exec.signal,
+        agent: exec.agent,
+        filename: args.filename,
+        baseURL,
+        apiKey,
+      })
+
+      return {
+        model: DEFAULT_MODEL,
+        prompt,
+        size: typeof payload.size === 'string' && payload.size !== '' ? payload.size : size,
+        images,
+      }
+    },
+  }))
 }

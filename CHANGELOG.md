@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0
+
+- Add `sensenova_edit_image` with 1-5 reference images (public URL or Base64 data URL) through `/v1/images/edits`; the first image is the primary image.
+- Add `size: auto` as the default for generation and editing; keep the 2K/4K presets and custom sizes.
+- Add the `self_correction` toggle for text accuracy and overall image quality.
+- Rename the prompt switch to **prompt polish/expand** (`prompt_extend`); the docs define one parameter for polishing and expansion, so no duplicate switch is added. The provider falls back to the original prompt when expansion fails.
+- Keep `n` 1-4 in the plugin even though the docs currently support only `n=1`; keep `watermark` default `false`; keep `response_format` internal as `url`.
+
 ## 0.3.0
 
 - Switch the image model to `sensenova-u1.6-lite`; remove `sensenova-u1.5-lite` and `sensenova-u1.5-fast`.

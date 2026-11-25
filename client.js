@@ -24,8 +24,9 @@ window.__ModuleLoader__.load({
       apiKeyBlank: 'Key 不能为空。',
       apiKeyReadOnly: '当前凭据不可写。',
       size: '尺寸 / 分辨率',
-      sizeHint: '本接口没有单独的 resolution 参数，size 就是输出分辨率。默认 2048×2048；宽高需为 512–4096、32 的倍数，比例不超过 3:1。',
-      size2048x2048: '2048×2048 ｜ 1:1 ｜ 2K（默认）',
+      sizeHint: '本接口没有单独的 resolution 参数，size 就是输出分辨率。默认 auto；也可选 2K/4K 或自定义宽高（512–4096、32 的倍数、比例不超过 3:1）。',
+      sizeAuto: 'auto — 自动（默认）',
+      size2048x2048: '2048×2048 ｜ 1:1 ｜ 2K',
       size2720x1536: '2720×1536 ｜ 16:9 ｜ 2K',
       size1536x2720: '1536×2720 ｜ 9:16 ｜ 2K',
       size1664x2496: '1664×2496 ｜ 2:3 ｜ 2K',
@@ -38,10 +39,12 @@ window.__ModuleLoader__.load({
       nUnit: '张',
       watermark: '水印',
       watermarkHint: '开启后图片带平台水印；公测期关闭可生成无水印原图。',
-      promptExtend: '提示词自动扩写',
-      promptExtendHint: '开启后服务端会扩写提示词，细节更丰富；关闭则严格按原文生成。',
-      verification: '视觉核对',
-      verificationHint: '生成后用 sensenova-6.8-flash 检查图片是否满足提示词；核对失败不影响图片保存。',
+      promptExtend: '提示词自动润色/扩写（prompt_extend）',
+      promptExtendHint: '服务端自动润色/扩写提示词；扩写失败时自动使用原始 prompt。与原来的“自动扩写”是同一个参数。',
+      selfCorrection: '文字与画质增强（self_correction）',
+      selfCorrectionHint: '提升图中文字的准确性和整体画质；默认开启。',
+      verification: '视觉核对（sensenova-6.8-flash）',
+      verificationHint: '默认开启。每张生成图都会调用 sensenova-6.8-flash 检查是否满足提示词；核对失败不影响图片保存。',
       format: '输出格式',
       formatHint: 'PNG 无损、体积较大；JPEG / WebP 体积更小，适合网页和分享。',
       outputDir: '保存目录',
@@ -80,8 +83,9 @@ window.__ModuleLoader__.load({
       apiKeyBlank: 'The key must not be blank.',
       apiKeyReadOnly: 'This credential is read-only.',
       size: 'Size / resolution',
-      sizeHint: 'This API has no separate resolution parameter: size is the output resolution. The default is 2048×2048; width and height must be 512-4096, multiples of 32, and at most 3:1 apart.',
-      size2048x2048: '2048×2048 | 1:1 | 2K (default)',
+      sizeHint: 'This API has no separate resolution parameter: size is the output resolution. The default is auto; 2K/4K presets and custom WIDTHxHEIGHT (512-4096, multiples of 32, at most 3:1) are also available.',
+      sizeAuto: 'auto — automatic (default)',
+      size2048x2048: '2048×2048 | 1:1 | 2K',
       size2720x1536: '2720×1536 | 16:9 | 2K',
       size1536x2720: '1536×2720 | 9:16 | 2K',
       size1664x2496: '1664×2496 | 2:3 | 2K',
@@ -94,10 +98,12 @@ window.__ModuleLoader__.load({
       nUnit: 'image(s)',
       watermark: 'Watermark',
       watermarkHint: 'Adds the platform watermark. Leave it off during the free public beta for a clean original.',
-      promptExtend: 'Prompt auto-extend',
-      promptExtendHint: 'Lets the provider expand and refine the prompt for richer detail; off follows the prompt literally.',
-      verification: 'Visual check',
-      verificationHint: 'Checks each image against the prompt with sensenova-6.8-flash; a failed check does not discard the image.',
+      promptExtend: 'Prompt polish/expand (prompt_extend)',
+      promptExtendHint: 'The provider polishes/expands the prompt automatically and falls back to the original prompt if expansion fails. This is the same parameter as the previous auto-extend.',
+      selfCorrection: 'Text and quality enhancement (self_correction)',
+      selfCorrectionHint: 'Improves text accuracy and overall image quality; on by default.',
+      verification: 'Visual check (sensenova-6.8-flash)',
+      verificationHint: 'On by default. Each generated image is checked against the prompt with sensenova-6.8-flash; a failed check does not discard the image.',
       format: 'Output format',
       formatHint: 'PNG is lossless and larger; JPEG and WebP are smaller for the web and sharing.',
       outputDir: 'Save directory',
@@ -119,6 +125,7 @@ window.__ModuleLoader__.load({
     }
 
     const PRESETS = [
+      { value: 'auto', key: 'sizeAuto' },
       { value: '2048x2048', key: 'size2048x2048' },
       { value: '2720x1536', key: 'size2720x1536' },
       { value: '1536x2720', key: 'size1536x2720' },
@@ -131,6 +138,7 @@ window.__ModuleLoader__.load({
 
     function validateSize(raw) {
       const size = String(raw ?? '').trim()
+      if (size.toLowerCase() === 'auto') return 'auto'
       if (/^(2k|4k)$/i.test(size)) return size.toUpperCase()
       const match = /^(\d{3,4})x(\d{3,4})$/i.exec(size)
       if (match === null) return null
@@ -262,7 +270,7 @@ window.__ModuleLoader__.load({
         }
         next.outputDir = String(next.outputDir ?? '').trim() || 'generated-images'
         const ops = []
-        for (const key of ['size', 'n', 'watermark', 'prompt_extend', 'verify', 'output_format', 'outputDir']) {
+        for (const key of ['size', 'n', 'watermark', 'prompt_extend', 'self_correction', 'verify', 'output_format', 'outputDir']) {
           if (next[key] !== value[key]) ops.push({ op: 'set', path: [key], value: next[key] })
         }
         if (ops.length === 0) {
@@ -332,10 +340,11 @@ window.__ModuleLoader__.load({
         return h('div', { className: 'sn-section' }, h('div', { className: 'sn-hint' }, t('loading')))
       }
 
-      const size = current.size ?? '2048x2048'
+      const size = current.size ?? 'auto'
       const n = current.n ?? 1
       const watermark = current.watermark === true
       const promptExtend = current.prompt_extend !== false
+      const selfCorrection = current.self_correction !== false
       const verify = current.verify !== false
       const format = current.output_format ?? 'png'
       const outputDir = current.outputDir ?? 'generated-images'
@@ -395,6 +404,12 @@ window.__ModuleLoader__.load({
             keyConfigured && keyInfo.masked ? h('div', { className: 'sn-mini-hint' }, keyInfo.masked) : null,
             !keyWritable ? h('div', { className: 'sn-mini-hint sn-error' }, t('apiKeyReadOnly')) : null,
           )),
+          row(t('verification'), t('verificationHint'), h(Toggle, {
+            checked: verify,
+            disabled: !writable || busy,
+            label: t('verification'),
+            onChange: next => set('verify', next),
+          })),
           row(t('size'), t('sizeHint'), h('div', { className: 'sn-stack' },
             h('select', {
               className: 'sn-select',
@@ -403,7 +418,7 @@ window.__ModuleLoader__.load({
               onChange: event => {
                 if (event.target.value === 'custom') {
                   setCustomMode(true)
-                  if (!size) set('size', '2048x2048')
+                  if (!size) set('size', 'auto')
                 } else {
                   setCustomMode(false)
                   set('size', event.target.value)
@@ -440,11 +455,11 @@ window.__ModuleLoader__.load({
             label: t('promptExtend'),
             onChange: next => set('prompt_extend', next),
           })),
-          row(t('verification'), t('verificationHint'), h(Toggle, {
-            checked: verify,
+          row(t('selfCorrection'), t('selfCorrectionHint'), h(Toggle, {
+            checked: selfCorrection,
             disabled: !writable || busy,
-            label: t('verification'),
-            onChange: next => set('verify', next),
+            label: t('selfCorrection'),
+            onChange: next => set('self_correction', next),
           })),
           row(t('format'), t('formatHint'), h('select', {
             className: 'sn-select',
