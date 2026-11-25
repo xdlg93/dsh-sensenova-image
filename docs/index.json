@@ -32,6 +32,18 @@
       },
       "versions": [
         {
+          "version": "0.5.1",
+          "publishTimestamp": 1795598290,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/xdlg93/dsh-sensenova-image",
+            "commit": "86cda1de6c09a20e3f493b8a035b2f269d65d8fa"
+          },
+          "engines": {
+            "dsh": "^0.2.2-rc.5 || ^0.2.3-alpha.2"
+          }
+        },
+        {
           "version": "0.5.0",
           "publishTimestamp": 1795594740,
           "source": {
