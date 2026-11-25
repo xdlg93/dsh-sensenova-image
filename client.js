@@ -5,11 +5,29 @@ window.__ModuleLoader__.load({
     const h = React.createElement
     const NS = 'sensenova-image'
     const USER_API_KEY_REF = 'SENSENOVA_IMAGE_API_KEY'
+    const PLUGIN_NAME = 'dsh-sensenova-image'
+    const INDEX_URL = 'https://xdlg93.github.io/dsh-sensenova-image/index.json'
+    const INDEX_MIRROR = 'https://cdn.jsdelivr.net/gh/xdlg93/dsh-sensenova-image@main/docs/index.json'
 
     const zh = {
       nav: 'SenseNova 文生图（U1.6 Lite）',
       title: 'SenseNova 文生图（U1.6 Lite）',
       intro: '设置默认请求参数。生成后会用 sensenova-6.8-flash 做视觉核对；智能体调用 sensenova_generate_image 时，未显式传入的参数会使用这里的值。',
+      update: '插件更新',
+      updateHint: '无需卸载，直接覆盖安装最新版本；更新期间页面可能重载。',
+      updateCurrent: '当前版本',
+      updateLatest: '最新版本',
+      updateCheck: '检查更新',
+      updateNow: '更新到 {version}',
+      updateChecking: '检查中…',
+      updateRunning: '正在更新…页面可能重载。',
+      updateLatestShort: '已是最新版本。',
+      updateUnavailable: '更新服务不可用。',
+      updateNotGit: '当前安装方式不支持一键更新，请从 Discover 重新安装。',
+      updateFailed: '更新失败：',
+      updateDone: '更新完成。',
+      updateRestart: '更新已安装，需要重启 DSH。',
+      updateNoIndex: '无法读取市场索引。',
       apiKey: 'API Key',
       apiKeyHint: '默认使用当前配置的 SENSENOVA_API_KEY；填写并保存后优先使用你的 Key。Key 保存在 DSH 凭据库，不会写入配置文件。',
       apiKeyPlaceholder: 'sk-...',
@@ -69,6 +87,21 @@ window.__ModuleLoader__.load({
       nav: 'SenseNova image (U1.6 Lite)',
       title: 'SenseNova image (U1.6 Lite)',
       intro: 'Set the default request parameters. Each generated image is checked with sensenova-6.8-flash; when an agent calls sensenova_generate_image without an explicit value, the value here is used.',
+      update: 'Plugin update',
+      updateHint: 'Update in place to the latest version without uninstalling; the page may reload during the update.',
+      updateCurrent: 'Current version',
+      updateLatest: 'Latest version',
+      updateCheck: 'Check for updates',
+      updateNow: 'Update to {version}',
+      updateChecking: 'Checking…',
+      updateRunning: 'Updating… the page may reload.',
+      updateLatestShort: 'Already up to date.',
+      updateUnavailable: 'Update service is unavailable.',
+      updateNotGit: 'This installation cannot update in place; reinstall from Discover.',
+      updateFailed: 'Update failed: ',
+      updateDone: 'Update complete.',
+      updateRestart: 'Update installed; restart DSH.',
+      updateNoIndex: 'Could not read the market index.',
       apiKey: 'API key',
       apiKeyHint: 'Uses the configured SENSENOVA_API_KEY by default. A key saved here takes precedence. The key is stored in the DSH credential store, never in the plugin configuration.',
       apiKeyPlaceholder: 'sk-...',
@@ -206,7 +239,36 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function Section({ form, t, credentials }) {
+    function compareVersions(left, right) {
+      const parse = value => String(value).split('-')[0].split('.').map(part => Number(part) || 0)
+      const a = parse(left)
+      const b = parse(right)
+      for (let index = 0; index < 3; index += 1) {
+        if (a[index] !== b[index]) return a[index] - b[index]
+      }
+      return 0
+    }
+
+    async function fetchMarketIndex() {
+      for (const url of [INDEX_URL, INDEX_MIRROR]) {
+        try {
+          const response = await fetch(`${url}?t=${Date.now()}`, { cache: 'no-store' })
+          if (response.ok) return await response.json()
+        } catch (_failure) {
+          // try the mirror
+        }
+      }
+      return undefined
+    }
+
+    function sourceSpec(source) {
+      if (source === undefined || source.type !== 'git' || typeof source.url !== 'string' || typeof source.commit !== 'string') return undefined
+      const url = source.url.replace(/\.git$/u, '')
+      return `git+${url}.git#${source.commit}${typeof source.path === 'string' && source.path !== '' ? `&path:/${source.path}` : ''}`
+    }
+
+    function Section({ form, t, credentials, pluginManager }) {
+
       const [snapshot, setSnapshot] = React.useState(() => form.getSnapshot())
       const [draft, setDraft] = React.useState(null)
       const [status, setStatus] = React.useState('idle')
@@ -216,6 +278,7 @@ window.__ModuleLoader__.load({
       const [keyInfo, setKeyInfo] = React.useState({ configured: false, writable: true })
       const [keyStatus, setKeyStatus] = React.useState('idle')
       const [keyError, setKeyError] = React.useState('')
+      const [update, setUpdate] = React.useState({ phase: 'idle', current: undefined, latest: undefined, source: undefined, message: '' })
 
       React.useEffect(() => form.subscribe(() => setSnapshot(form.getSnapshot())), [form])
 
@@ -245,6 +308,78 @@ window.__ModuleLoader__.load({
         setError('')
         setDraft({ ...(draft ?? value), [key]: next })
       }
+
+      const checkForUpdate = async () => {
+        if (pluginManager === undefined) {
+          setUpdate({ phase: 'error', current: undefined, latest: undefined, source: undefined, message: t('updateUnavailable') })
+          return
+        }
+        setUpdate(previous => ({ ...previous, phase: 'checking', message: '' }))
+        try {
+          const bundles = await pluginManager.listBundles()
+          const currentBundle = bundles.ok ? bundles.value.find(bundle => bundle.name === PLUGIN_NAME) : undefined
+          const index = await fetchMarketIndex()
+          const entry = index?.plugins?.find(plugin => plugin.name === PLUGIN_NAME)
+          const versions = Array.isArray(entry?.versions)
+            ? [...entry.versions].sort((left, right) => compareVersions(right.version, left.version))
+            : []
+          const latest = versions[0]
+          const currentVersion = currentBundle?.version
+          const newer = latest !== undefined && currentVersion !== undefined && compareVersions(latest.version, currentVersion) > 0
+          const canUpdate = newer && currentBundle?.update === 'git' && latest?.source?.type === 'git'
+          let message = ''
+          if (latest === undefined) message = t('updateNoIndex')
+          else if (newer && !canUpdate) message = t('updateNotGit')
+          else if (!newer) message = t('updateLatestShort')
+          setUpdate({
+            phase: canUpdate ? 'ready' : 'idle',
+            current: currentVersion,
+            latest: latest?.version,
+            source: latest?.source,
+            message,
+          })
+        } catch (failure) {
+          setUpdate({
+            phase: 'error',
+            current: undefined,
+            latest: undefined,
+            source: undefined,
+            message: `${t('updateFailed')}${failure instanceof Error ? failure.message : String(failure)}`,
+          })
+        }
+      }
+
+      const runUpdate = async () => {
+        if (pluginManager === undefined || update.phase !== 'ready' || update.latest === undefined) return
+        const spec = sourceSpec(update.source)
+        if (spec === undefined) {
+          setUpdate(previous => ({ ...previous, phase: 'error', message: t('updateNotGit') }))
+          return
+        }
+        setUpdate(previous => ({ ...previous, phase: 'running', message: '' }))
+        try {
+          const requestId = globalThis.crypto?.randomUUID?.() ?? `sensenova-update-${Date.now()}`
+          const answer = await pluginManager.updateBundle(PLUGIN_NAME, update.latest, { spec, requestId })
+          if (!answer.ok) {
+            setUpdate(previous => ({ ...previous, phase: 'error', message: `${t('updateFailed')}${answer.error.message}` }))
+            return
+          }
+          const application = answer.value?.result?.application
+          if (application === 'failed') {
+            setUpdate(previous => ({ ...previous, phase: 'error', message: `${t('updateFailed')}${answer.value?.result?.error?.message ?? 'failed'}` }))
+            return
+          }
+          setUpdate(previous => ({
+            ...previous,
+            phase: 'done',
+            message: application === 'restart-required' ? t('updateRestart') : t('updateDone'),
+          }))
+        } catch (failure) {
+          setUpdate(previous => ({ ...previous, phase: 'error', message: `${t('updateFailed')}${failure instanceof Error ? failure.message : String(failure)}` }))
+        }
+      }
+
+      React.useEffect(() => { void checkForUpdate() }, [pluginManager])
 
       const save = async () => {
         if (!writable || busy) return
@@ -369,6 +504,31 @@ window.__ModuleLoader__.load({
           h('div', { className: 'sn-intro' }, t('intro')),
         ),
         h('div', { className: 'sn-card' },
+          row(t('update'), t('updateHint'), h('div', { className: 'sn-stack' },
+            h('div', { className: 'sn-mini-hint' }, [
+              update.current !== undefined ? `${t('updateCurrent')} ${update.current}` : `${t('updateCurrent')} —`,
+              update.latest !== undefined ? `${t('updateLatest')} ${update.latest}` : '',
+            ].filter(Boolean).join(' · ')),
+            update.phase === 'checking' ? h('div', { className: 'sn-mini-hint' }, t('updateChecking')) : null,
+            update.phase === 'running' ? h('div', { className: 'sn-mini-hint' }, t('updateRunning')) : null,
+            update.phase === 'idle' && update.message !== '' ? h('div', { className: 'sn-mini-hint' }, update.message) : null,
+            update.phase === 'done' ? h('div', { className: 'sn-mini-hint' }, update.message) : null,
+            update.phase === 'error' ? h('div', { className: 'sn-mini-hint sn-error', role: 'alert' }, update.message) : null,
+            h('div', { className: 'sn-key-actions' },
+              update.phase === 'ready' ? h('button', {
+                type: 'button',
+                className: 'sn-btn sn-btn-primary sn-btn-small',
+                onClick: runUpdate,
+              }, t('updateNow').replace('{version}', update.latest)) : null,
+              h('button', {
+                type: 'button',
+                className: 'sn-btn sn-btn-secondary sn-btn-small',
+                disabled: update.phase === 'checking' || update.phase === 'running',
+                onClick: () => { void checkForUpdate() },
+              }, t('updateCheck')),
+            ),
+            pluginManager === undefined ? h('div', { className: 'sn-mini-hint sn-error' }, t('updateUnavailable')) : null,
+          )),
           row(t('apiKey'), t('apiKeyHint'), h('div', { className: 'sn-stack' },
             h('input', {
               className: 'sn-input',
@@ -500,7 +660,7 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'locale', 'configForms', 'remote', 'remote.credentials'],
+      inject: ['slots', 'locale', 'configForms', 'remote', 'remote.credentials', 'remote.pluginManager'],
       apply(ctx) {
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-sensenova-image: locale')
         const t = ctx.locale.bind(NS)
@@ -510,7 +670,7 @@ window.__ModuleLoader__.load({
           id: 'sensenova-image',
           order: 30,
           label: () => t('nav'),
-          inject: () => ({ form, t, credentials: ctx.remote.credentials }),
+          inject: () => ({ form, t, credentials: ctx.remote.credentials, pluginManager: ctx.remote.pluginManager }),
         }, Section))
       },
     }

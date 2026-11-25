@@ -17,6 +17,24 @@ Models:
 - Explicit tool-call parameters override the saved defaults.
 - Works for the root agent and subagents / agent teams.
 
+## In-plugin update
+
+Version `0.5.0` and later shows **插件更新** at the top of **Settings → SenseNova 文生图（U1.6 Lite）**. It reads the market index, compares the installed Git version, and calls the DSH plugin manager's `updateBundle` with the index's commit. Clicking **更新到 x.y.z** replaces the installed version in place without uninstalling. The page may reload while the plugin restarts.
+
+This requires a Git installation (the market index uses Git). A `link:`/local install shows that in-place update is unsupported. `0.5.0` is the first version with the button, so install `0.5.0` once from Discover; later updates are one click.
+
+## Agent priority policy
+
+DSH has no global "tool priority" switch; the model chooses from the system prompt and tool descriptions. This plugin registers a global system-prompt section, **Image generation policy**, for every agent in the profile (including subagents and agent teams):
+
+- For an image asset request (illustration, poster, cover, icon, infographic, product shot, photo, avatar, visual asset), call `sensenova_generate_image` first.
+- For reference-image editing or rewriting, call `sensenova_edit_image`.
+- Do not substitute HTML/CSS/SVG/canvas rendering or a web image search for a generation request.
+- For a web page or UI, use the frontend/HTML workflow; for an image asset placed into a page, use this plugin.
+- If no API key is configured or the tool fails, say so instead of silently switching to HTML or search.
+
+This is a prompt-level default, not a hard tool lock. An explicit user instruction (for example, "build this poster as HTML") still wins.
+
 ## Install from a plugin index
 
 1. Open **Plugins** in the DSH Web GUI.
@@ -25,14 +43,14 @@ Models:
    `https://xdlg93.github.io/dsh-sensenova-image/index.json`
 
    Mirrors: `https://cdn.jsdelivr.net/gh/xdlg93/dsh-sensenova-image@main/docs/index.json` and `https://raw.githubusercontent.com/xdlg93/dsh-sensenova-image/main/docs/index.json`. The CDN and raw mirrors can lag briefly.
-4. Search for `sensenova` and install version `0.4.1` (or an older version from the Versions list).
+4. Search for `sensenova` and install version `0.5.0` (or an older version from the Versions list).
 
 The API key is read from the `SENSENOVA_API_KEY` credential reference by default. You can also save a custom key on **Settings → SenseNova 文生图（U1.6 Lite）**: it is stored in the DSH credential store and takes precedence; clear it to fall back to `SENSENOVA_API_KEY`. The same key is used for `sensenova-u1.6-lite` and the `sensenova-6.8-flash` visual check.
 
 ## Install manually from Git
 
 ```sh
-dsh plugin --profile web add 'git+https://github.com/xdlg93/dsh-sensenova-image.git#v0.4.1'
+dsh plugin --profile web add 'git+https://github.com/xdlg93/dsh-sensenova-image.git#v0.5.0'
 ```
 
 For a monorepo the plugin manager uses the package directory; this repository keeps the package at the root.
@@ -84,6 +102,7 @@ Defaults: `n` stays 1-4 even though the docs currently support only `n=1`; `wate
 
 ## Versions
 
+- `0.5.0` — add in-plugin one-click updates and a global image-generation priority policy.
 - `0.4.1` — fix the visual-check 400 with Base64/6.8-flash-lite fallback and quiet skip; serve the market index from `/docs`.
 - `0.4.0` — add `sensenova_edit_image` with 1-5 reference images; `size: auto`; `self_correction`; prompt polish/expand.
 - `0.3.0` — switch to `sensenova-u1.6-lite`; add `sensenova-6.8-flash` visual checks.
@@ -93,7 +112,7 @@ Defaults: `n` stays 1-4 even though the docs currently support only `n=1`; `wate
 - `0.2.0` — Fast model + settings page.
 - `0.1.0` — initial Lite-only tool.
 
-All eight are preserved as Git tags (`v0.1.0` … `v0.4.1`) and in the plugin market index. Each declares DSH compatibility `^0.2.2-rc.5 || ^0.2.3-alpha.2`.
+All nine are preserved as Git tags (`v0.1.0` … `v0.5.0`) and in the plugin market index. Each declares DSH compatibility `^0.2.2-rc.5 || ^0.2.3-alpha.2`.
 
 ## Local directory (`link:`) installs
 

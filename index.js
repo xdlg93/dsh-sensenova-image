@@ -420,6 +420,10 @@ function renderImageResult(_args, value) {
   return [{ type: 'text', text: lines.join('\n') }]
 }
 
+const IMAGE_POLICY_TEXT = `## Image generation policy
+
+When the user asks to generate, create, draw, design, or render an image — including illustrations, posters, covers, icons, infographics, product shots, photos, avatars, or visual assets — call \`sensenova_generate_image\` first. If the user supplies reference images or asks to edit/rewrite an existing image, call \`sensenova_edit_image\` instead. Do not substitute HTML/CSS/SVG/canvas rendering or a web image search for a generation request unless the user explicitly asks for HTML/vector code, or the image tool is unavailable or fails. Use web search only to find existing images or references, not to fulfill a request to create one. For a web page or UI, use the appropriate frontend/HTML workflow; for an image asset or a visual to be placed into a page, use this tool. Posters and infographics with text should use this tool too; only use HTML when the user asks for editable HTML. If no API key is configured or the tool fails, say so and ask how to proceed instead of silently switching to HTML or search.`
+
 export function apply(ctx, config) {
   const baseURL = textConfig(config, 'baseURL', DEFAULT_BASE_URL)
   const apiKeyEnv = textConfig(config, 'apiKeyEnv', DEFAULT_API_KEY_ENV)
@@ -430,10 +434,21 @@ export function apply(ctx, config) {
     settingsCtx.effect(() => settingsCtx.settings.configure({ auto: false }, ctx.fiber))
   })
 
+  ctx.inject(['systemPrompt'], (promptCtx) => {
+    promptCtx.effect(() => promptCtx.systemPrompt.section({
+      name: 'sensenova:image-policy',
+      order: 700,
+      text: IMAGE_POLICY_TEXT,
+    }))
+  })
+
   ctx.tools.register(defineTool({
     name: 'sensenova_generate_image',
     description:
-      'Generate one or more images from a text prompt with SenseNova U1.6 Lite (sensenova-u1.6-lite). '
+      'Use this tool whenever the user asks to generate, create, draw, design, or render an image '
+      + '(illustration, poster, cover, icon, infographic, product shot, photo, avatar, visual asset). '
+      + 'Prefer it over HTML/CSS/SVG/canvas rendering or web image search; use search only to find existing images. '
+      + 'Generate one or more images from a text prompt with SenseNova U1.6 Lite (sensenova-u1.6-lite). '
       + 'After saving each image, SenseNova 6.8 Flash (sensenova-6.8-flash) checks it against the prompt and '
       + 'reports pass/warn/fail plus issues; a failed check does not discard the image. '
       + 'The image model is an image-generation model, not a chat model. Images are downloaded and saved in the '
@@ -555,7 +570,8 @@ export function apply(ctx, config) {
   ctx.tools.register(defineTool({
     name: 'sensenova_edit_image',
     description:
-      'Edit or rewrite one or more reference images with SenseNova U1.6 Lite (sensenova-u1.6-lite). '
+      'Use this tool when the user supplies reference images or asks to edit/rewrite an existing image. '
+      + 'Edit or rewrite one or more reference images with SenseNova U1.6 Lite (sensenova-u1.6-lite). '
       + 'Pass 1-5 reference images as public URLs or Base64 data URLs; the first is the primary image. '
       + 'After saving the result, SenseNova 6.8 Flash (sensenova-6.8-flash) checks it against the edit prompt. '
       + 'Use this tool for image-to-image editing, style transfer, background replacement, object changes, '

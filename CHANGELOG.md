@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.0
+
+- Add an in-plugin **插件更新** row that reads the market index and calls `pluginManager.updateBundle` with the index's Git commit, replacing the installed version in place without uninstalling. Requires a Git installation; 0.5.0 is the first version with the button.
+- Add a global **Image generation policy** system-prompt section and priority wording in both tool descriptions, so agents prefer `sensenova_generate_image` / `sensenova_edit_image` for image assets instead of HTML/CSS/SVG or web image search, while still using frontend/HTML workflows for web pages and UI.
+
 ## 0.4.1
 
 - Fix the visual check returning HTTP 400: fall back from the temporary image URL to a Base64 data URL, then from `sensenova-6.8-flash` to `sensenova-6.8-flash-lite`. If every combination returns 400, skip the check quietly instead of printing an error line; non-400 failures remain visible.
