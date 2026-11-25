@@ -121,24 +121,37 @@ async function resolveKeyRef(ctx, ref) {
   return undefined
 }
 
-/**
- * Resolve the API key. A key saved on the settings page under
- * `SENSENOVA_IMAGE_API_KEY` always wins; without one, the configured
- * `apiKeyEnv` (default `SENSENOVA_API_KEY`) remains the fallback.
- */
-async function resolveApiKey(ctx, ref) {
-  const custom = await resolveKeyRef(ctx, USER_API_KEY_ENV)
-  if (custom !== undefined) return custom
-  const fallback = await resolveKeyRef(ctx, ref)
-  if (fallback !== undefined) return fallback
-  throw new Error(
-    `sensenova_generate_image: no API key; set ${USER_API_KEY_ENV} in Settings, `
-    + `or configure ${ref} in the DSH credential store / environment`,
-  )
+/** Whether an API failure should be retried with another configured key. */
+function isKeyFailoverError(status, payload, raw) {
+  if (status === 401 || status === 402 || status === 403 || status === 429) return true
+  const text = `${payload?.error?.message ?? ''} ${payload?.error?.code ?? ''} ${payload?.error?.type ?? ''} ${raw ?? ''}`.toLowerCase()
+  return /quota|insufficient|balance|credit|rate.?limit|too many|exceeded|exhausted|积分|额度|5\s*hour|窗口/u.test(text)
 }
 
-/** POST one generation request, combining the tool's cancellation with a request timeout. */
-async function requestImages({ baseURL, apiKey, path, body, signal, timeoutMs }) {
+/**
+ * Resolve the configured keys in preference order: the key saved on the
+ * settings page first, then the configured `apiKeyEnv` fallback. Duplicate
+ * values collapse to one entry; the caller may use the second entry when the
+ * first is rate-limited or out of quota.
+ */
+async function resolveApiKeys(ctx, ref) {
+  const custom = await resolveKeyRef(ctx, USER_API_KEY_ENV)
+  const fallback = await resolveKeyRef(ctx, ref)
+  const keys = []
+  for (const key of [custom, fallback]) {
+    if (typeof key === 'string' && key !== '' && !keys.includes(key)) keys.push(key)
+  }
+  if (keys.length === 0) {
+    throw new Error(
+      `sensenova_generate_image: no API key; set ${USER_API_KEY_ENV} in Settings, `
+      + `or configure ${ref} in the DSH credential store / environment`,
+    )
+  }
+  return keys
+}
+
+/** One generation/editing request with one key. */
+async function requestImagesOnce({ baseURL, apiKey, path, body, signal, timeoutMs }) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(new Error(`request timed out after ${timeoutMs} ms`)), timeoutMs)
   const forwardAbort = () => controller.abort(signal.reason)
@@ -157,21 +170,47 @@ async function requestImages({ baseURL, apiKey, path, body, signal, timeoutMs })
     let payload
     try {
       payload = raw === '' ? undefined : JSON.parse(raw)
-    } catch {
+    } catch (_failure) {
       payload = undefined
     }
     if (!response.ok) {
       const detail = payload?.error?.message ?? payload?.message ?? raw.slice(0, 500)
-      throw new Error(`sensenova_generate_image: HTTP ${response.status} from ${path}: ${detail}`)
+      return {
+        ok: false,
+        retryable: isKeyFailoverError(response.status, payload, raw),
+        error: new Error(`sensenova_generate_image: HTTP ${response.status} from ${path}: ${detail}`),
+      }
     }
     if (payload === undefined || !Array.isArray(payload.data) || payload.data.length === 0) {
-      throw new Error('sensenova_generate_image: the API returned no image data')
+      return { ok: false, retryable: false, error: new Error('sensenova_generate_image: the API returned no image data') }
     }
-    return payload
+    return { ok: true, payload }
+  } catch (error) {
+    return {
+      ok: false,
+      retryable: false,
+      error: error instanceof Error ? error : new Error(String(error)),
+    }
   } finally {
     clearTimeout(timer)
     signal.removeEventListener('abort', forwardAbort)
   }
+}
+
+/**
+ * POST one image request, trying each configured key in order when the
+ * previous key is rate-limited, out of quota, or rejected.
+ * @returns the successful payload and the key that served it.
+ */
+async function requestImages({ baseURL, apiKeys, path, body, signal, timeoutMs }) {
+  let last
+  for (const apiKey of apiKeys) {
+    const result = await requestImagesOnce({ baseURL, apiKey, path, body, signal, timeoutMs })
+    if (result.ok) return { payload: result.payload, apiKey }
+    last = result
+    if (!result.retryable) throw result.error
+  }
+  throw last?.error ?? new Error('sensenova_generate_image: all configured API keys failed')
 }
 
 /** Read one image's bytes from the API's URL or inline Base64 form. */
@@ -260,12 +299,12 @@ async function requestVision({ baseURL, apiKey, model, imageUrl, prompt, signal,
     }
     if (!response.ok) {
       const detail = payload?.error?.message ?? payload?.message ?? raw.slice(0, 300)
-      return { ok: false, model, status: response.status, detail }
+      return { ok: false, model, status: response.status, detail, retryable: isKeyFailoverError(response.status, payload, raw) }
     }
     const content = payload?.choices?.[0]?.message?.content
     const parsed = parseVerdict(content)
     if (parsed === undefined) {
-      return { ok: false, model, status: 200, detail: String(content ?? 'empty vision response').slice(0, 500) }
+      return { ok: false, model, status: 200, detail: String(content ?? 'empty vision response').slice(0, 500), retryable: false }
     }
     return {
       ok: true,
@@ -284,6 +323,7 @@ async function requestVision({ baseURL, apiKey, model, imageUrl, prompt, signal,
       model,
       status: 0,
       detail: error instanceof Error ? error.message : String(error),
+      retryable: false,
     }
   } finally {
     clearTimeout(timer)
@@ -292,12 +332,13 @@ async function requestVision({ baseURL, apiKey, model, imageUrl, prompt, signal,
 }
 
 /**
- * Ask the vision models to check one generated image. Try the primary model
- * with the temporary URL, then a Base64 data URL, then the lighter model with
- * both payloads. A 400 on every attempt is an unsupported payload/model, so the
- * check is skipped quietly; other failures are reported as `error`.
+ * Ask the vision models to check one generated image. For each configured key,
+ * try the primary model with the temporary URL, then a Base64 data URL, then
+ * the lighter model with both payloads. A key that is rate-limited or out of
+ * quota moves to the next key; a 400 on every attempt is an unsupported
+ * payload/model and is skipped quietly.
  */
-async function verifyImage({ baseURL, apiKey, prompt, imageUrl, imageBytes, mediaType, signal, timeoutMs }) {
+async function verifyImage({ baseURL, apiKeys, prompt, imageUrl, imageBytes, mediaType, signal, timeoutMs }) {
   const dataUrl = imageBytes === undefined
     ? undefined
     : `data:${mediaType};base64,${Buffer.from(imageBytes).toString('base64')}`
@@ -306,28 +347,36 @@ async function verifyImage({ baseURL, apiKey, prompt, imageUrl, imageBytes, medi
     if (typeof imageUrl === 'string' && imageUrl !== '') attempts.push({ model, url: imageUrl })
     if (dataUrl !== undefined) attempts.push({ model, url: dataUrl })
   }
-  let last
-  for (const attempt of attempts) {
-    last = await requestVision({
-      baseURL,
-      apiKey,
-      model: attempt.model,
-      imageUrl: attempt.url,
-      prompt,
-      signal,
-      timeoutMs,
-    })
-    if (last.ok) return last.value
-    if (last.status !== 400) break
-  }
-  if (last !== undefined && last.status !== 400) {
-    return { model: last.model, status: 'error', summary: last.detail }
+  for (const apiKey of apiKeys) {
+    let last
+    let keyRetryable = false
+    for (const attempt of attempts) {
+      last = await requestVision({
+        baseURL,
+        apiKey,
+        model: attempt.model,
+        imageUrl: attempt.url,
+        prompt,
+        signal,
+        timeoutMs,
+      })
+      if (last.ok) return last.value
+      if (last.retryable) {
+        keyRetryable = true
+        break
+      }
+      if (last.status !== 400) break
+    }
+    if (keyRetryable) continue
+    if (last !== undefined && last.status !== 400) {
+      return { model: last.model, status: 'error', summary: last.detail }
+    }
   }
   return undefined
 }
 
 /** Download, save, and optionally visually verify every image in one API response. */
-async function saveImages({ ctx, config, payload, prompt, format, verify, signal, agent, filename, baseURL, apiKey }) {
+async function saveImages({ ctx, config, payload, prompt, format, verify, signal, agent, filename, baseURL, apiKeys }) {
   const session = agent?.session
   const cwd = session !== undefined
     ? ctx.workingDirectory.get(session)
@@ -355,7 +404,7 @@ async function saveImages({ ctx, config, payload, prompt, format, verify, signal
         : `data:${OUTPUT_FORMATS[format]};base64,${bytes.toString('base64')}`
       image.verification = await verifyImage({
         baseURL,
-        apiKey,
+        apiKeys,
         prompt,
         imageUrl,
         imageBytes: bytes,
@@ -520,7 +569,7 @@ export function apply(ctx, config) {
         throw new ToolArgsError(['output_format must be png, jpeg, or webp'])
       }
 
-      const apiKey = await resolveApiKey(ctx, apiKeyEnv)
+      const apiKeys = await resolveApiKeys(ctx, apiKeyEnv)
       const body = {
         model: selectedModel,
         prompt,
@@ -533,14 +582,16 @@ export function apply(ctx, config) {
         self_correction: args.self_correction ?? liveConfig(config, 'self_correction', true),
       }
 
-      const payload = await requestImages({
+      const generated = await requestImages({
         baseURL,
-        apiKey,
+        apiKeys,
         path: '/images/generations',
         body,
         signal: exec.signal,
         timeoutMs: requestTimeoutMs,
       })
+      const payload = generated.payload
+      const imageKey = generated.apiKey
 
       const images = await saveImages({
         ctx,
@@ -553,7 +604,7 @@ export function apply(ctx, config) {
         agent: exec.agent,
         filename: args.filename,
         baseURL,
-        apiKey,
+        apiKeys: [imageKey, ...apiKeys.filter(key => key !== imageKey)],
       })
 
       return {
@@ -643,7 +694,7 @@ export function apply(ctx, config) {
         throw new ToolArgsError(['output_format must be png, jpeg, or webp'])
       }
 
-      const apiKey = await resolveApiKey(ctx, apiKeyEnv)
+      const apiKeys = await resolveApiKeys(ctx, apiKeyEnv)
       const body = {
         model: DEFAULT_MODEL,
         images: references.map(imageUrl => ({ image_url: imageUrl })),
@@ -657,14 +708,16 @@ export function apply(ctx, config) {
         self_correction: args.self_correction ?? liveConfig(config, 'self_correction', true),
       }
 
-      const payload = await requestImages({
+      const generated = await requestImages({
         baseURL,
-        apiKey,
+        apiKeys,
         path: '/images/edits',
         body,
         signal: exec.signal,
         timeoutMs: requestTimeoutMs,
       })
+      const payload = generated.payload
+      const imageKey = generated.apiKey
 
       const images = await saveImages({
         ctx,
@@ -677,7 +730,7 @@ export function apply(ctx, config) {
         agent: exec.agent,
         filename: args.filename,
         baseURL,
-        apiKey,
+        apiKeys: [imageKey, ...apiKeys.filter(key => key !== imageKey)],
       })
 
       return {

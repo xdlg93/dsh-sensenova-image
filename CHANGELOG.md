@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1
+
+- Add API key failover: when a configured key is rate-limited or out of quota, image generation and visual checks retry with the other configured key. Duplicate key values collapse to one entry.
+
 ## 0.5.0
 
 - Add an in-plugin **插件更新** row that reads the market index and calls `pluginManager.updateBundle` with the index's Git commit, replacing the installed version in place without uninstalling. Requires a Git installation; 0.5.0 is the first version with the button.

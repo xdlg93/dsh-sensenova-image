@@ -17,6 +17,10 @@ Models:
 - Explicit tool-call parameters override the saved defaults.
 - Works for the root agent and subagents / agent teams.
 
+## API key failover
+
+The plugin keeps the configured `SENSENOVA_API_KEY` and the optional key saved in Settings. If a request is rate-limited or out of quota, image generation and visual checks retry with the other configured key. Duplicate key values collapse to one entry; both keys stay in the DSH credential store.
+
 ## In-plugin update
 
 Version `0.5.0` and later shows **插件更新** at the top of **Settings → SenseNova 文生图（U1.6 Lite）**. It reads the market index, compares the installed Git version, and calls the DSH plugin manager's `updateBundle` with the index's commit. Clicking **更新到 x.y.z** replaces the installed version in place without uninstalling. The page may reload while the plugin restarts.
@@ -43,14 +47,14 @@ This is a prompt-level default, not a hard tool lock. An explicit user instructi
    `https://xdlg93.github.io/dsh-sensenova-image/index.json`
 
    Mirrors: `https://cdn.jsdelivr.net/gh/xdlg93/dsh-sensenova-image@main/docs/index.json` and `https://raw.githubusercontent.com/xdlg93/dsh-sensenova-image/main/docs/index.json`. The CDN and raw mirrors can lag briefly.
-4. Search for `sensenova` and install version `0.5.0` (or an older version from the Versions list).
+4. Search for `sensenova` and install version `0.5.1` (or an older version from the Versions list).
 
 The API key is read from the `SENSENOVA_API_KEY` credential reference by default. You can also save a custom key on **Settings → SenseNova 文生图（U1.6 Lite）**: it is stored in the DSH credential store and takes precedence; clear it to fall back to `SENSENOVA_API_KEY`. The same key is used for `sensenova-u1.6-lite` and the `sensenova-6.8-flash` visual check.
 
 ## Install manually from Git
 
 ```sh
-dsh plugin --profile web add 'git+https://github.com/xdlg93/dsh-sensenova-image.git#v0.5.0'
+dsh plugin --profile web add 'git+https://github.com/xdlg93/dsh-sensenova-image.git#v0.5.1'
 ```
 
 For a monorepo the plugin manager uses the package directory; this repository keeps the package at the root.
@@ -102,6 +106,7 @@ Defaults: `n` stays 1-4 even though the docs currently support only `n=1`; `wate
 
 ## Versions
 
+- `0.5.1` — add API key failover for rate/quota limits.
 - `0.5.0` — add in-plugin one-click updates and a global image-generation priority policy.
 - `0.4.1` — fix the visual-check 400 with Base64/6.8-flash-lite fallback and quiet skip; serve the market index from `/docs`.
 - `0.4.0` — add `sensenova_edit_image` with 1-5 reference images; `size: auto`; `self_correction`; prompt polish/expand.
@@ -112,7 +117,7 @@ Defaults: `n` stays 1-4 even though the docs currently support only `n=1`; `wate
 - `0.2.0` — Fast model + settings page.
 - `0.1.0` — initial Lite-only tool.
 
-All nine are preserved as Git tags (`v0.1.0` … `v0.5.0`) and in the plugin market index. Each declares DSH compatibility `^0.2.2-rc.5 || ^0.2.3-alpha.2`.
+All ten are preserved as Git tags (`v0.1.0` … `v0.5.1`) and in the plugin market index. Each declares DSH compatibility `^0.2.2-rc.5 || ^0.2.3-alpha.2`.
 
 ## Local directory (`link:`) installs
 
