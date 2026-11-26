@@ -25,10 +25,18 @@ jobs:
           node-version: 24
       - name: Pack the plugin
         run: npm pack
+      - name: Extract release notes from CHANGELOG.md
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: node scripts/release-notes.mjs "$TAG" > release-notes.md
       - name: Create or update the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --generate-notes
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TAG" --notes-file release-notes.md
+          else
+            gh release create "$TAG" --title "$TAG" --notes-file release-notes.md
+          fi
           gh release upload "$TAG" ./*.tgz --clobber

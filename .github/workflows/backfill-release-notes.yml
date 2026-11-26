@@ -1,0 +1,32 @@
+name: Backfill release notes
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Update every existing release from CHANGELOG.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for TAG in $(git tag --sort=version:refname); do
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              if node scripts/release-notes.mjs "$TAG" > release-notes.md; then
+                gh release edit "$TAG" --title "$TAG" --notes-file release-notes.md
+                echo "updated $TAG"
+              else
+                echo "skipped $TAG (no CHANGELOG section)"
+              fi
+            fi
+          done
