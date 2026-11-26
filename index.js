@@ -9,8 +9,9 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { mkdir, writeFile } from 'node:fs/promises'
-import { isAbsolute, join, resolve } from 'node:path'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { extname, isAbsolute, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import z from '@deepseek-ai/schemastery'
 import { defineTool, ToolArgsError } from '@deepseek-ai/dsh-tools'
 
@@ -245,6 +246,51 @@ async function readImageBytes(item, signal) {
   throw new Error('sensenova_generate_image: the API returned neither url nor b64_json')
 }
 
+const REFERENCE_MIME = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+}
+const MAX_REFERENCE_BYTES = 10 * 1024 * 1024
+
+/** Turn a public URL, data URL, or local file path into an API image_url. */
+async function resolveReferenceImage(value, ctx, session) {
+  const input = value.trim()
+  if (/^https?:\/\//iu.test(input) || /^data:image\//iu.test(input)) return input
+  let path = input
+  if (/^file:\/\//iu.test(input)) {
+    try {
+      path = fileURLToPath(input)
+    } catch (_failure) {
+      throw new ToolArgsError([`invalid file URL: ${input}`])
+    }
+  }
+  let cwd = ctx.workingDirectory.defaultDirectory
+  if (session !== undefined) {
+    try {
+      cwd = ctx.workingDirectory.get(session)
+    } catch (_failure) {
+      // fall back to the default directory
+    }
+  }
+  const absolute = isAbsolute(path) ? path : resolve(cwd, path)
+  let bytes
+  try {
+    bytes = await readFile(absolute)
+  } catch (error) {
+    throw new ToolArgsError([`cannot read reference image ${absolute}: ${error instanceof Error ? error.message : String(error)}`])
+  }
+  if (bytes.byteLength > MAX_REFERENCE_BYTES) {
+    throw new ToolArgsError([`reference image is larger than 10 MB: ${absolute}`])
+  }
+  const mime = REFERENCE_MIME[extname(absolute).toLowerCase()]
+  if (mime === undefined) {
+    throw new ToolArgsError([`unsupported reference image type (use png, jpeg, or webp): ${absolute}`])
+  }
+  return `data:${mime};base64,${bytes.toString('base64')}`
+}
+
 /** Extract the JSON verdict from a vision reply, tolerating code fences and prose. */
 function parseVerdict(content) {
   const text = typeof content === 'string' ? content.trim() : ''
@@ -409,7 +455,7 @@ async function saveImages({ ctx, config, payload, prompt, format, verify, signal
     const image = {
       path,
       bytes: bytes.byteLength,
-      markdown: `![SenseNova image](<${path}>)`,
+      markdown: `[SenseNova image](<${path}>)`,
       ...(typeof item.url === 'string' && item.url !== '' ? { url: item.url } : {}),
     }
     if (verify) {
@@ -467,25 +513,28 @@ const IMAGE_OUTPUT_SCHEMA = {
 }
 
 function renderImageResult(_args, value) {
-  const lines = [`Generated ${value.images.length} image(s) with ${value.model} at ${value.size}.`]
+  const lines = [
+    `Generated ${value.images.length} image(s) with ${value.model} at ${value.size}.`,
+    'The plugin already performed the visual check; use the `verification` field. Do not read the image with the session model.',
+  ]
   for (const image of value.images) {
     lines.push(`- ${image.path} (${image.bytes} bytes)`)
-    lines.push(`  Markdown: ${image.markdown}`)
     if (image.url !== undefined) lines.push(`  Temporary URL (24h): ${image.url}`)
     if (image.verification !== undefined) {
       lines.push(`  Visual check (${image.verification.model}): ${image.verification.status} — ${image.verification.summary ?? ''}`)
       if (Array.isArray(image.verification.issues) && image.verification.issues.length > 0) {
         lines.push(`  Issues: ${image.verification.issues.join('; ')}`)
       }
+    } else {
+      lines.push('  Visual check: disabled')
     }
   }
-  lines.push('Include the Markdown line in your reply so the user can see the image.')
   return [{ type: 'text', text: lines.join('\n') }]
 }
 
 const IMAGE_POLICY_TEXT = `## Image generation policy
 
-When the user asks to generate, create, draw, design, or render an image — including illustrations, posters, covers, icons, infographics, product shots, photos, avatars, or visual assets — call \`sensenova_generate_image\` first. If the user supplies reference images or asks to edit/rewrite an existing image, call \`sensenova_edit_image\` instead. Do not substitute HTML/CSS/SVG/canvas rendering or a web image search for a generation request unless the user explicitly asks for HTML/vector code, or the image tool is unavailable or fails. Use web search only to find existing images or references, not to fulfill a request to create one. For a web page or UI, use the appropriate frontend/HTML workflow; for an image asset or a visual to be placed into a page, use this tool. Posters and infographics with text should use this tool too; only use HTML when the user asks for editable HTML. If no API key is configured or the tool fails, say so and ask how to proceed instead of silently switching to HTML or search.`
+When the user asks to generate, create, draw, design, or render an image — including illustrations, posters, covers, icons, infographics, product shots, photos, avatars, or visual assets — call \`sensenova_generate_image\` first. If the user supplies reference images or asks to edit/rewrite an existing image, call \`sensenova_edit_image\` instead. Do not substitute HTML/CSS/SVG/canvas rendering or a web image search for a generation request unless the user explicitly asks for HTML/vector code, or the image tool is unavailable or fails. Use web search only to find existing images or references, not to fulfill a request to create one. For a web page or UI, use the appropriate frontend/HTML workflow; for an image asset or a visual to be placed into a page, use this tool. Posters and infographics with text should use this tool too; only use HTML when the user asks for editable HTML. If no API key is configured or the tool fails, say so and ask how to proceed instead of silently switching to HTML or search. After a SenseNova image tool returns, use its \`verification\` field for the visual check. Do not call \`read_image\` or another image-reading tool on the generated file with the session model; the session model may not accept images. Only read the image again if the user explicitly asks and the current model supports image input. For \`sensenova_edit_image\`, pass reference images as public URLs, data URLs, or local file paths; the plugin reads local paths, so the session model does not need image input.`
 
 export function apply(ctx, config) {
   const baseURL = textConfig(config, 'baseURL', DEFAULT_BASE_URL)
@@ -514,10 +563,11 @@ export function apply(ctx, config) {
       + 'Generate one or more images from a text prompt with SenseNova U1.6 Lite (sensenova-u1.6-lite). '
       + 'After saving each image, SenseNova 6.8 Flash (sensenova-6.8-flash) checks it against the prompt and '
       + 'reports pass/warn/fail plus issues; a failed check does not discard the image. '
+      + 'Use the returned `verification` field; do not read the generated image with the session model. '
       + 'The image model is an image-generation model, not a chat model. Images are downloaded and saved in the '
-      + 'session working directory; the result contains each absolute path, byte size, temporary URL, ready-to-use '
-      + 'Markdown, and the visual-check result. Put the returned Markdown in your reply so the user can see the '
-      + 'image. Use this tool for any text-to-image request, such as illustrations, posters, product shots, or '
+      + 'session working directory; the result contains each absolute path, byte size, temporary URL, a normal '
+      + 'file link, and the visual-check result. Do not add a Markdown image embed. Use this tool for any '
+      + 'text-to-image request, such as illustrations, posters, product shots, or '
       + 'infographics. Size, n, watermark, prompt_extend, self_correction, verify, and output_format default to '
       + 'the values on the plugin settings page; explicit parameters override them.',
     parameters: {
@@ -643,8 +693,9 @@ export function apply(ctx, config) {
     description:
       'Use this tool when the user supplies reference images or asks to edit/rewrite an existing image. '
       + 'Edit or rewrite one or more reference images with SenseNova U1.6 Lite (sensenova-u1.6-lite). '
-      + 'Pass 1-5 reference images as public URLs or Base64 data URLs; the first is the primary image. '
-      + 'After saving the result, SenseNova 6.8 Flash (sensenova-6.8-flash) checks it against the edit prompt. '
+      + 'Pass 1-5 reference images as public URLs, Base64 data URLs, or local file paths; local paths are read by the plugin, so the session model does not need image input. The first is the primary image. '
+      + 'After saving the result, SenseNova 6.8 Flash (sensenova-6.8-flash) checks it against the edit prompt '
+      + 'and returns a `verification` field. Use that field; do not read the generated image with the session model. '
       + 'Use this tool for image-to-image editing, style transfer, background replacement, object changes, '
       + 'or reference-guided generation. Size, watermark, prompt_extend, self_correction, verify, and '
       + 'output_format default to the settings page.',
@@ -658,7 +709,7 @@ export function apply(ctx, config) {
         type: 'array',
         required: true,
         items: { type: 'string' },
-        description: `1-${MAX_REFERENCE_IMAGES} reference images. Each is a public HTTPS URL or a Base64 data URL (data:image/png;base64,...). The first image is the primary image.`,
+        description: `1-${MAX_REFERENCE_IMAGES} reference images. Each may be a public HTTPS URL, a Base64 data URL (data:image/png;base64,...), or a local file path (png/jpeg/webp). Local paths are read by the plugin, so the session model does not need image input. The first image is the primary image.`,
       },
       size: {
         type: 'string',
@@ -714,11 +765,16 @@ export function apply(ctx, config) {
         throw new ToolArgsError(['output_format must be png, jpeg, or webp'])
       }
 
+      const resolvedReferences = []
+      for (const reference of references) {
+        resolvedReferences.push(await resolveReferenceImage(reference, ctx, exec.agent?.session))
+      }
+
       const keyPreference = liveConfig(config, 'keyPreference', 'custom')
       const apiKeys = await resolveApiKeys(ctx, apiKeyEnv, keyPreference)
       const body = {
         model: DEFAULT_MODEL,
-        images: references.map(imageUrl => ({ image_url: imageUrl })),
+        images: resolvedReferences.map(imageUrl => ({ image_url: imageUrl })),
         prompt,
         n: 1,
         size,

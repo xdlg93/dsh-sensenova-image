@@ -22,6 +22,16 @@ U1.6 Lite 是图片创作模型，服务端只提供 OpenAI 兼容的图像接�
 
 > 官方文档已把文生图模型更新为 `sensenova-u1.6-lite` 与 `sensenova-u1-pro`。平台的 `GET /v1/models` 可能短暂滞后；以官方文档和实际调用为准。
 
+## 参考图输入
+
+`sensenova_edit_image` 的 `images` 参数支持三种形式：
+
+- 公网 HTTPS URL；
+- Base64 Data URL（`data:image/png;base64,...`）；
+- 本地文件路径（png/jpeg/webp，最大 10 MB）。
+
+本地路径由插件在 Host 端读取并转成 Data URL，**会话模型不需要支持图片输入**，也不需要先调用 `read_image`。相对路径按会话工作目录解析；Windows 路径建议写成 `D:/path/ref.png` 或 `D:\\path\\ref.png`。
+
 ## API Key 自动切换
 
 插件会同时保留配置的 `SENSENOVA_API_KEY` 与设置页保存的自定义 Key。设置页新增 **优先使用自定义 Key** 开关：选中的 Key 先请求；如果它触发限流或额度限制，本次请求会自动尝试另一个已配置 Key，成功后把优先 Key 切换过去。相同 Key 会去重；两个 Key 都保存在 DSH 凭据库。
@@ -43,6 +53,10 @@ U1.6 Lite 是图片创作模型，服务端只提供 OpenAI 兼容的图像接�
 
 - 只支持 Git 安装（市场索引安装的就是 Git 版本）；`link:` 本地目录会显示“不支持一键更新”。
 - 0.5.0 是第一个带更新按钮的版本；0.4.1 及更早版本需要先从 Discover 安装一次 0.5.0，之后才能一键更新。
+
+## 会话模型不要读图
+
+插件已经在内部用 `sensenova-6.8-flash` 做视觉核对，并把结果放在 `verification`。工具结果不再返回 Markdown 图片嵌入，并明确提示会话模型不要调用 `read_image`。如果当前会话模型不支持图片输入，直接使用 `verification` 即可，不需要读图后重试。
 
 ## Agent 优先策略
 
@@ -110,7 +124,7 @@ DSH 没有全局“工具优先级”开关，模型是根据系统提示和工�
 
 - `path`：本地绝对路径；
 - `bytes`：文件字节数；
-- `markdown`：`![SenseNova image](<path>)`，可直接放进回复；
+- `markdown`：`[SenseNova image](<path>)`，普通文件链接，不触发会话模型读图；视觉核对用 `verification`。
 - `url`：服务端临时链接（24 小时有效，可能不存在）；
 - `verification`：视觉核对结果（`verify` 开启时），包含：
   - `model`：`sensenova-6.8-flash`；

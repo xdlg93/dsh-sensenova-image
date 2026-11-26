@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.4
+
+- Stop returning a Markdown image embed; instruct the session model to use the plugin's `verification` field instead of calling `read_image`.
+- Let `sensenova_edit_image` accept local reference-image paths (png/jpeg/webp, up to 10 MB), read by the plugin on the host; the session model does not need image input.
+
 ## 0.5.3
 
 - Show update progress steps and the install-log tail in the plugin settings row.
