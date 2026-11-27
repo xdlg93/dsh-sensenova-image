@@ -10,7 +10,8 @@ Models:
 ## Features
 
 - Generate images from Chinese or English prompts through `/v1/images/generations` with `sensenova-u1.6-lite`.
-- Edit 1-5 reference images through `/v1/images/edits`; each reference may be a public URL or a Base64 data URL.
+- Edit 1-5 reference images through `/v1/images/edits`; each reference may be a public URL, a Base64 data URL, or a local file path read by the plugin.
+- An embedded **sensenova-prompt** skill checks the request against a nine-dimension prompt checklist, expands missing details, and asks you to confirm or edit the prompt before generating.
 - Download the result and save it in the session working directory; return an absolute path, byte size, temporary URL, and ready-to-use Markdown.
 - Check each image against the prompt with `sensenova-6.8-flash` and return `pass` / `warn` / `fail` plus issues; a failed check does not discard the image. If a payload/model returns HTTP 400, the check falls back to a Base64 data URL and then `sensenova-6.8-flash-lite`; an unsupported combination is skipped quietly.
 - Choose size/resolution (default `auto`), image count, watermark, prompt polish/expand, text-and-quality enhancement (`self_correction`), visual check, output format, and save directory on **Settings → SenseNova 文生图（U1.6 Lite）**, with a note for each option.
@@ -26,6 +27,19 @@ The plugin keeps the configured `SENSENOVA_API_KEY` and the optional key saved i
 Version `0.5.0` and later shows **插件更新** at the top of **Settings → SenseNova 文生图（U1.6 Lite）**. It reads the market index, compares the installed Git version, and calls the DSH plugin manager's `updateBundle` with the target commit. Clicking **更新到 x.y.z** replaces the installed version in place without uninstalling. The row shows checking/removing/installing/restoring steps and the install-log tail; on failure it shows the management error code, diagnostic, pnpm output and a network hint. The target spec is built from the installed Git origin, so a copy installed through a mirror or proxy updates through the same origin. The page may reload while the plugin restarts.
 
 This requires a Git installation (the market index uses Git). A `link:`/local install shows that in-place update is unsupported. `0.5.0` is the first version with the button, so install `0.5.0` once from Discover; later updates are one click.
+
+## Prompt spec skill
+
+The plugin registers the model-facing skill **sensenova-prompt**. Before an image tool runs, the agent should load it and:
+
+1. classify the deliverable (poster, infographic, illustration, photo, portrait, product, edit);
+2. check the request against nine dimensions: purpose, aspect ratio, style/medium, subject/action, composition/camera, color/light, typography/layout, mood/audience, constraints;
+3. expand only missing key details, without inventing brands, people, data, or exact copy;
+4. present the completed prompt and ask you to confirm or edit it;
+5. generate only after confirmation, or when you explicitly say "直接生成 / 不用确认";
+6. use the tool's `verification` field instead of reading the image with the session model.
+
+The skill includes templates for posters, infographics, illustration/photo, portrait, and editing, plus patterns from the U1 Pro and U1.6 Lite galleries (153 examples).
 
 ## Agent priority policy
 
@@ -47,14 +61,14 @@ This is a prompt-level default, not a hard tool lock. An explicit user instructi
    `https://xdlg93.github.io/dsh-sensenova-image/index.json`
 
    Mirrors: `https://cdn.jsdelivr.net/gh/xdlg93/dsh-sensenova-image@main/docs/index.json` and `https://raw.githubusercontent.com/xdlg93/dsh-sensenova-image/main/docs/index.json`. The CDN and raw mirrors can lag briefly.
-4. Search for `sensenova` and install version `0.5.4` (or an older version from the Versions list).
+4. Search for `sensenova` and install version `0.5.5` (or an older version from the Versions list).
 
 The API key is read from the `SENSENOVA_API_KEY` credential reference by default. You can also save a custom key on **Settings → SenseNova 文生图（U1.6 Lite）**: it is stored in the DSH credential store and takes precedence; clear it to fall back to `SENSENOVA_API_KEY`. The same key is used for `sensenova-u1.6-lite` and the `sensenova-6.8-flash` visual check.
 
 ## Install manually from Git
 
 ```sh
-dsh plugin --profile web add 'git+https://github.com/xdlg93/dsh-sensenova-image.git#v0.5.4'
+dsh plugin --profile web add 'git+https://github.com/xdlg93/dsh-sensenova-image.git#v0.5.5'
 ```
 
 For a monorepo the plugin manager uses the package directory; this repository keeps the package at the root.
@@ -106,6 +120,7 @@ Defaults: `n` stays 1-4 even though the docs currently support only `n=1`; `wate
 
 ## Versions
 
+- `0.5.5` — expand the `sensenova-prompt` skill with 100 U1.6 Lite gallery examples and camera/lighting, illustration-medium, and typography-layout guidance.
 - `0.5.4` — accept local reference-image paths for edits and stop returning Markdown image embeds; session models use the plugin's `verification`.
 - `0.5.3` — show update progress and detailed failure diagnostics; build the update spec from the installed Git origin.
 - `0.5.2` — add a preferred-key toggle with automatic failover and persistence.
@@ -120,7 +135,7 @@ Defaults: `n` stays 1-4 even though the docs currently support only `n=1`; `wate
 - `0.2.0` — Fast model + settings page.
 - `0.1.0` — initial Lite-only tool.
 
-All thirteen are preserved as Git tags (`v0.1.0` … `v0.5.4`) and in the plugin market index. Each declares DSH compatibility `^0.2.2-rc.5 || ^0.2.3-alpha.2`.
+All fourteen are preserved as Git tags (`v0.1.0` … `v0.5.5`) and in the plugin market index. Each declares DSH compatibility `^0.2.2-rc.5 || ^0.2.3-alpha.2`.
 
 ## Local directory (`link:`) installs
 

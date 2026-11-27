@@ -532,9 +532,99 @@ function renderImageResult(_args, value) {
   return [{ type: 'text', text: lines.join('\n') }]
 }
 
+const PROMPT_SKILL_NAME = 'sensenova-prompt'
+const PROMPT_SKILL_TEXT = `# SenseNova 文生图提示词规范
+
+## 目标
+
+把用户的模糊想法补全成可执行的画面指令；先给用户确认稿，确认后再生成，减少反复抽卡。
+
+## 何时使用
+
+在调用 sensenova_generate_image 或 sensenova_edit_image 之前使用。用户提出生成、画、设计、做海报/封面/信息图/插画/人像/产品图，或编辑已有图片时，先按本规范核对提示词。
+
+## 工作流
+
+1. 判断交付物类型：海报、信息图、插画、摄影、人像、产品图、编辑。
+2. 用“九维清单”核对；已经清楚的维度不要重复扩写。
+3. 缺少关键信息时，先补全或提出 1-3 个关键问题；不要凭空编造品牌、人物、数据或精确文字。
+4. 给用户一份确认稿：画面目标、建议提示词、需要确认的选项。
+5. 默认先给确认稿；只有用户明确说“直接生成”或“不用确认”时才跳过确认。用户说“帮我生成”不等于“直接生成”。
+6. 生成后用插件返回的 verification 做核对；不要用会话模型读图。
+
+## 九维清单
+
+1. 交付物与用途：海报、信息图、插画、摄影、人像、产品图、封面、编辑。
+2. 画幅与尺寸：比例（1:1、3:4、9:16、16:9、A4 等）、分辨率、横竖版。
+3. 风格与媒介：版画、水彩、胶片摄影、3D、极简矢量、拼贴、国风、赛博朋克等；说明参考方向，不要只写“高级感”。
+4. 主体与动作：谁/什么、数量、外观、服装、动作、表情、状态；产品图要写材质和卖点。
+5. 构图与镜头：主体位置、视角、景别、镜头、景深、留白、网格、前后景关系。
+6. 色彩与光线：主色、辅色、色温、光源方向、明暗、材质纹理、颗粒/噪点。
+7. 文字与排版：精确文案（用引号）、语言、字体气质、字号层级、位置、横竖排；信息图要写章节和图表类型。
+8. 氛围与受众：情绪、场景、平台调性、品牌气质、使用场景。
+9. 限制与负面项：不要水印、不要多余文字、不要畸形手指、不要改变主体身份、必须保留的元素。
+
+## 模板
+
+海报：画幅 + 用途 + 风格/媒介 + 主题/主体 + 构图/版式 + 文字层级 + 配色/光线 + 质感/氛围 + 限制。
+
+信息图：尺寸/比例 + 信息图类型 + 主题/受众 + 章节/数据 + 版式/网格 + 图表类型 + 配色/字体 + 文字要求 + 限制。
+
+插画/摄影：比例 + 媒介/风格 + 主体/动作 + 环境 + 镜头/构图 + 光线/色彩 + 情绪 + 限制。
+
+人像：比例 + 摄影/胶片风格 + 人物/服装/姿态 + 场景 + 镜头/景深 + 光线 + 色调 + 质感 + 限制。
+
+摄影：画幅 + 机位/镜头 + 人物/姿态 + 服装/道具 + 环境 + 光线方向/色温 + 景深/运动模糊 + 胶片/颗粒 + 色调 + 限制。
+
+插画：画幅 + 媒介/笔触 + 线条/纹理 + 主体/动作 + 构图/视角 + 色彩 + 情绪 + 限制。
+
+信息图/海报：画幅 + 背景/主色 + 品牌/标题/副标题/英文小字层级 + 主视觉位置 + 装饰元素 + 排版/留白 + 光影 + 限制。
+
+编辑：保留什么 + 修改什么 + 参考图角色（主图/风格/元素）+ 一致性要求 + 禁止改变的部分。
+
+## 画廊示例的写法（U1 Pro + U1.6 Lite）
+
+- 城市海报：竖幅 9:16，版画木刻，黑+橘红双色，白底颗粒噪点；主体两座古塔与提线木偶；顶部大标题、右侧竖排城市名、右下角印章；构图饱满。
+- 节气海报：竖版 3:4，清新现代平面设计，轻微复古印刷感；天空蓝+草坡绿+西瓜红；天空留白与分散字母、风筝、细白引导线；底部大号日期排版。
+- 摄影信息图：A4 竖版，极简矢量，暖白底，黑/深灰/银灰为主，少量暖棕强调；顶部标题、中部主视觉、左右知识模块；所有文字中文，不要英文、乱码、水印。
+- 时尚人像：中画幅时尚摄影，中法混血女模特，白缎花饰礼服，T 台走秀，闪光灯，背景虚化，高级时装杂志质感。
+- 简短需求：用户只说“武康路，社交媒体风格，有网感”时，不要硬扩成 500 字；先问平台/比例、是否要文字、想要的色调，再给 2-3 句可执行提示词。
+
+### U1.6 Lite 画廊特点（100 个示例）
+
+- 摄影 42、插画 32、信息图 26；提示词中位数 367 字，平均 428 字。
+- 摄影：写清机位/镜头、人物姿态、服装道具、光线方向、景深/运动模糊、胶片颗粒和色调。
+- 插画：写清媒介（水彩/蜡笔/粉彩）、线条、纹理、主色、构图和情绪。
+- 信息图/海报：写清画幅、背景、品牌/标题/副标题/英文小字的层级、主视觉位置、装饰元素和留白。
+
+- 摄影示例：竖幅侧向跟拍，人物从左向右跑，头微低，长发向后翻；一大捧黄花横在胸前，黑外套与短下装；金色逆光描亮发梢，脚部方向性模糊，背景楼面只留带状色影，明显胶片颗粒。
+- 插画示例：柔和的水彩与蜡笔混合，线条圆润；巨大粉猫趴卧，小女孩坐在猫肚子上看书；中近景略俯视，暖色、安静、童话感。
+- 信息图/海报示例：2:3 竖版，深浅明绿的水雾背景；顶部中央小号绿色衬线品牌，约四分之一处深绿书法标题，下接细宋体和两行英文小字；蛋糕居中偏下，玻璃高脚盘，浅黄青绿奶油条纹，桌面同心水波纹。
+- 版式示例：先拍 3:2 城市街头横幅，再合成 3:4 白底画布，横向照片贴满全宽、垂直居中、上下各留四分之一白边，不在白边加字。
+
+## 规则
+
+- 具体名词和动词优先于空泛形容词；不要堆砌“masterpiece、8K、best quality”。
+- 文字必须用引号给出精确内容；说明语言、字体气质、位置和层级；不额外添加无关文字。
+- 信息图不要编造数据；数据由用户提供，或明确标注为示意。
+- 编辑时先写“必须保留”，再写“需要改变”；参考图第一张是主图。
+- 简单需求保持简短；海报/信息图/多主体场景才需要结构化长提示词。
+- U1.6 Lite 的摄影/插画/信息图示例普遍较长；这类请求要写足镜头、光线、媒介、文字层级，不要只写一句主题。
+- 先确认再生成；确认稿要能让用户直接改，不要只给一句“我来优化”。
+
+## 确认话术
+
+我先按规范补全提示词，确认后再生成：
+
+- 交付物：……
+- 建议提示词：……
+- 需要你确认：比例 / 文字 / 风格 / 是否保留某元素
+
+用户确认或说“直接生成”后，再调用 sensenova_generate_image 或 sensenova_edit_image。`
+
 const IMAGE_POLICY_TEXT = `## Image generation policy
 
-When the user asks to generate, create, draw, design, or render an image — including illustrations, posters, covers, icons, infographics, product shots, photos, avatars, or visual assets — call \`sensenova_generate_image\` first. If the user supplies reference images or asks to edit/rewrite an existing image, call \`sensenova_edit_image\` instead. Do not substitute HTML/CSS/SVG/canvas rendering or a web image search for a generation request unless the user explicitly asks for HTML/vector code, or the image tool is unavailable or fails. Use web search only to find existing images or references, not to fulfill a request to create one. For a web page or UI, use the appropriate frontend/HTML workflow; for an image asset or a visual to be placed into a page, use this tool. Posters and infographics with text should use this tool too; only use HTML when the user asks for editable HTML. If no API key is configured or the tool fails, say so and ask how to proceed instead of silently switching to HTML or search. After a SenseNova image tool returns, use its \`verification\` field for the visual check. Do not call \`read_image\` or another image-reading tool on the generated file with the session model; the session model may not accept images. Only read the image again if the user explicitly asks and the current model supports image input. For \`sensenova_edit_image\`, pass reference images as public URLs, data URLs, or local file paths; the plugin reads local paths, so the session model does not need image input.`
+When the user asks to generate, create, draw, design, or render an image — including illustrations, posters, covers, icons, infographics, product shots, photos, avatars, or visual assets — call \`sensenova_generate_image\` first. If the user supplies reference images or asks to edit/rewrite an existing image, call \`sensenova_edit_image\` instead. Do not substitute HTML/CSS/SVG/canvas rendering or a web image search for a generation request unless the user explicitly asks for HTML/vector code, or the image tool is unavailable or fails. Use web search only to find existing images or references, not to fulfill a request to create one. For a web page or UI, use the appropriate frontend/HTML workflow; for an image asset or a visual to be placed into a page, use this tool. Posters and infographics with text should use this tool too; only use HTML when the user asks for editable HTML. If no API key is configured or the tool fails, say so and ask how to proceed instead of silently switching to HTML or search. After a SenseNova image tool returns, use its \`verification\` field for the visual check. Do not call \`read_image\` or another image-reading tool on the generated file with the session model; the session model may not accept images. Only read the image again if the user explicitly asks and the current model supports image input. For \`sensenova_edit_image\`, pass reference images as public URLs, data URLs, or local file paths; the plugin reads local paths, so the session model does not need image input. Before calling a SenseNova image tool, load the \`sensenova-prompt\` skill. For a new image request, check the prompt against its nine-dimension checklist; if key details are missing, present the completed prompt and ask the user to confirm or edit it, then generate. Do not call the image tool before that confirmation unless the user explicitly says '直接生成' or '不用确认'.`
 
 export function apply(ctx, config) {
   const baseURL = textConfig(config, 'baseURL', DEFAULT_BASE_URL)
@@ -554,6 +644,17 @@ export function apply(ctx, config) {
     }))
   })
 
+  ctx.inject(['skills'], (skillsCtx) => {
+    skillsCtx.effect(() => skillsCtx.skills.register({
+      name: PROMPT_SKILL_NAME,
+      description: 'Draft, check, and expand SenseNova text-to-image prompts; confirm with the user before generating.',
+      whenToUse: 'Use before sensenova_generate_image or sensenova_edit_image whenever the user asks for an image.',
+      content: PROMPT_SKILL_TEXT,
+      source: 'runtime',
+      invocation: { modelInvocable: true, userInvocable: true },
+    }))
+  })
+
   ctx.tools.register(defineTool({
     name: 'sensenova_generate_image',
     description:
@@ -564,6 +665,7 @@ export function apply(ctx, config) {
       + 'After saving each image, SenseNova 6.8 Flash (sensenova-6.8-flash) checks it against the prompt and '
       + 'reports pass/warn/fail plus issues; a failed check does not discard the image. '
       + 'Use the returned `verification` field; do not read the generated image with the session model. '
+      + 'Before calling this tool, load the sensenova-prompt skill and confirm the expanded prompt with the user unless they explicitly said to generate immediately. '
       + 'The image model is an image-generation model, not a chat model. Images are downloaded and saved in the '
       + 'session working directory; the result contains each absolute path, byte size, temporary URL, a normal '
       + 'file link, and the visual-check result. Do not add a Markdown image embed. Use this tool for any '
@@ -696,6 +798,7 @@ export function apply(ctx, config) {
       + 'Pass 1-5 reference images as public URLs, Base64 data URLs, or local file paths; local paths are read by the plugin, so the session model does not need image input. The first is the primary image. '
       + 'After saving the result, SenseNova 6.8 Flash (sensenova-6.8-flash) checks it against the edit prompt '
       + 'and returns a `verification` field. Use that field; do not read the generated image with the session model. '
+      + 'Before calling this tool, load the sensenova-prompt skill and confirm the expanded prompt with the user unless they explicitly said to generate immediately. '
       + 'Use this tool for image-to-image editing, style transfer, background replacement, object changes, '
       + 'or reference-guided generation. Size, watermark, prompt_extend, self_correction, verify, and '
       + 'output_format default to the settings page.',

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.5
+
+- Add the embedded `sensenova-prompt` skill: nine-dimension prompt checklist, five templates, gallery-derived examples, and a confirmation-before-generation flow.
+- Supplement the skill with 100 U1.6 Lite gallery examples (42 photography, 32 illustration, 26 infographic), including camera/lighting, medium/texture, and typography-layout guidance.
+- Document `prompt_extend` / `self_correction` behavior; `prompt_extend` measured +176 input tokens versus off.
+
 ## 0.5.4
 
 - Stop returning a Markdown image embed; instruct the session model to use the plugin's `verification` field instead of calling `read_image`.
